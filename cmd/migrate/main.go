@@ -31,6 +31,11 @@ func main() {
 			}
 			defer conn.Close()
 
+			// TODO: cleanup
+			if *n == 0 {
+				n = nil
+			}
+
 			return migrate.Up(conn, *dir, n)
 		})
 	}
@@ -45,6 +50,11 @@ func main() {
 				return err
 			}
 			defer conn.Close()
+
+			// TODO: cleanup
+			if *n == 0 {
+				n = nil
+			}
 
 			return migrate.Down(conn, *dir, n)
 		})

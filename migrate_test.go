@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func connect(t testing.TB) *sql.DB {
+func connect(t testing.TB) (*sql.DB, func()) {
 	db, err := sql.Open("postgres", "postgres://localhost:5432/migrate?sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,11 @@ func connect(t testing.TB) *sql.DB {
 		t.Fatal(err)
 	}
 
-	return db
+	return db, func() {
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func create(t testing.TB, names ...string) (dir string) {
@@ -79,7 +83,8 @@ func emails(t testing.TB, db *sql.DB) (emails []string) {
 }
 
 func TestConnect(t *testing.T) {
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 	assert.NotNil(t, db)
 }
 
@@ -111,7 +116,8 @@ func TestMigrateUp(t *testing.T) {
 	write(t, path.Join(dir, "002_two.up.sql"), `insert into "users" (email) values ('m@gmail.com');`)
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	if err := migrate.Up(db, dir, nil); err != nil {
 		t.Fatal(err)
@@ -132,7 +138,8 @@ func TestMigrateUpTwice(t *testing.T) {
 	write(t, path.Join(dir, "002_two.up.sql"), `insert into "users" (email) values ('m@gmail.com');`)
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	var n uint = 2
 	if err := migrate.Up(db, dir, &n); err != nil {
@@ -161,7 +168,8 @@ func TestMigrateUpThrice(t *testing.T) {
 	write(t, path.Join(dir, "002_two.up.sql"), `insert into "users" (email) values ('m@gmail.com');`)
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	var n uint = 2
 	if err := migrate.Up(db, dir, &n); err != nil {
@@ -202,7 +210,8 @@ func TestMigrateUpDownTwo(t *testing.T) {
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 	write(t, path.Join(dir, "003_three.down.sql"), `delete from "users" where email='t@gmail.com';`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	if err := migrate.Up(db, dir, nil); err != nil {
 		t.Fatal(err)
@@ -234,7 +243,8 @@ func TestMigrateUpDown(t *testing.T) {
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 	write(t, path.Join(dir, "003_three.down.sql"), `delete from "users" where email='t@gmail.com';`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	if err := migrate.Up(db, dir, nil); err != nil {
 		t.Fatal(err)
@@ -265,7 +275,8 @@ func TestMigrateUpDownUp(t *testing.T) {
 	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" (email) values ('t@gmail.com');`)
 	write(t, path.Join(dir, "003_three.down.sql"), `delete from "users" where email='t@gmail.com';`)
 
-	db := connect(t)
+	db, close := connect(t)
+	defer close()
 
 	if err := migrate.Up(db, dir, nil); err != nil {
 		t.Fatal(err)
@@ -295,4 +306,18 @@ func TestMigrateUpDownUp(t *testing.T) {
 	assert.Equal(t, "m@gmail.com", es[0])
 	assert.Equal(t, "t@gmail.com", es[1])
 	version(t, db, 3)
+}
+
+func TestMigrateUpSyntaxError(t *testing.T) {
+	dir := create(t, "one", "two", "three")
+	write(t, path.Join(dir, "001_one.up.sql"), `create table if not exists "users" (email text not null primary key);`)
+	write(t, path.Join(dir, "002_two.up.sql"), `insert into "users" (email) values ('m@gmail.com');`)
+	write(t, path.Join(dir, "003_three.up.sql"), `insert into "users" email) values ('t@gmail.com');`)
+
+	db, close := connect(t)
+	defer close()
+
+	err := migrate.Up(db, dir, nil)
+	version(t, db, 0)
+	assert.EqualError(t, err, "003_three.up.sql: syntax error at or near \"email\" (line: 1)")
 }

@@ -13,6 +13,7 @@ import (
 
 	// postgres
 	_ "github.com/lib/pq"
+	pq "github.com/lib/pq"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
@@ -71,16 +72,25 @@ func Up(db *sql.DB, dir string, n *uint) error {
 
 	remote++
 	for i > 0 && remote <= local {
-		migration, isset := files[remote]
+		name, err := at(files, remote)
+		if err != nil {
+			return err
+		}
+
+		migration, isset := files[name]
 		if isset {
 			if _, err := tx.Exec(migration); err != nil {
-				return err
+				return format(name, migration, err)
 			}
 		}
 
 		// increment version
 		if err := insertVersion(tx, remote); err != nil {
 			return err
+		}
+
+		if isset {
+			Log.Info(name)
 		}
 
 		// update counts
@@ -123,16 +133,25 @@ func Down(db *sql.DB, dir string, n *uint) error {
 	defer tx.Rollback()
 
 	for i > 0 && remote > 0 {
-		migration, isset := files[remote]
+		name, err := at(files, remote)
+		if err != nil {
+			return err
+		}
+
+		migration, isset := files[name]
 		if isset {
 			if _, err := tx.Exec(migration); err != nil {
-				return err
+				return format(name, migration, err)
 			}
 		}
 
 		// delete version
 		if err := deleteVersion(tx, remote); err != nil {
 			return err
+		}
+
+		if isset {
+			Log.Info(name)
 		}
 
 		i--
@@ -268,13 +287,13 @@ func extractVersion(filename string) (uint, error) {
 	return uint(n), nil
 }
 
-func migrations(dir string, d direction) (map[uint]string, error) {
+func migrations(dir string, d direction) (map[string]string, error) {
 	filenames, err := readdir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	migrations := map[uint]string{}
+	migrations := map[string]string{}
 	for _, filename := range filenames {
 		if d == up && !strings.Contains(filename, ".up.sql") {
 			continue
@@ -283,20 +302,28 @@ func migrations(dir string, d direction) (map[uint]string, error) {
 			continue
 		}
 
-		n, err := extractVersion(filename)
-		if err != nil {
-			return nil, err
-		}
-
 		file, err := ioutil.ReadFile(path.Join(dir, filename))
 		if err != nil {
 			return nil, err
 		}
 
-		migrations[n] = string(file)
+		migrations[filename] = string(file)
 	}
 
 	return migrations, nil
+}
+
+func at(migrations map[string]string, n uint) (string, error) {
+	for name := range migrations {
+		v, err := extractVersion(name)
+		if err != nil {
+			return "", err
+		}
+		if n == v {
+			return name, nil
+		}
+	}
+	return "", nil
 }
 
 func pad(n uint) string {
@@ -308,4 +335,34 @@ func pad(n uint) string {
 	default:
 		return strconv.Itoa(int(n))
 	}
+}
+
+func format(name string, data string, err error) error {
+	switch pqErr := err.(type) {
+	case *pq.Error:
+		if pqErr.Position == "" {
+			return fmt.Errorf("%s: %s", name, pqErr.Message)
+		}
+
+		position, e := strconv.Atoi(pqErr.Position)
+		if e != nil {
+			return err
+		}
+		return fmt.Errorf("%s: %s (line: %d)", name, pqErr.Message, line(data, position))
+	default:
+		return err
+	}
+}
+
+func line(data string, ch int) (line int) {
+	lines := strings.Split(data, "\n")
+	for i, l := range lines {
+		if len(l) > ch {
+			if i > 0 {
+				return i - 1
+			}
+			return 1
+		}
+	}
+	return len(lines)
 }
