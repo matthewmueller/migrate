@@ -18,7 +18,7 @@ func main() {
 	migrate.Log = log.Log
 
 	cli := commander.New("migrate", "Postgres migration CLI")
-	dir := cli.Flag("dir", "directory").Default("db").String()
+	dir := cli.Flag("dir", "directory").Default("./").String()
 
 	{
 		up := cli.Command("up", "migrate up")

@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,8 @@ var Log log.Interface = &log.Logger{
 	Handler: discard.Default,
 	Level:   log.InfoLevel,
 }
+
+var reFile = regexp.MustCompile(`^\d\d\d_`)
 
 type direction uint
 
@@ -262,7 +265,11 @@ func readdir(dir string) (filenames []string, err error) {
 	}
 
 	for _, file := range files {
-		filenames = append(filenames, file.Name())
+		name := file.Name()
+		if !reFile.MatchString(name) {
+			continue
+		}
+		filenames = append(filenames, name)
 	}
 	sort.Strings(filenames)
 
