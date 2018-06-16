@@ -355,21 +355,19 @@ func format(name string, data string, err error) error {
 		if e != nil {
 			return err
 		}
-		return fmt.Errorf("%s: %s (line: %d)", name, pqErr.Message, line(data, position))
+
+		return fmt.Errorf("%s:%d %s", name, line(data, position), pqErr.Message)
 	default:
 		return err
 	}
 }
 
-func line(data string, ch int) (line int) {
-	lines := strings.Split(data, "\n")
-	for i, l := range lines {
-		if len(l) > ch {
-			if i > 0 {
-				return i - 1
-			}
-			return 1
+func line(data string, pos int) (line int) {
+	line = 1
+	for i := 0; i < pos; i++ {
+		if data[i] == '\n' {
+			line++
 		}
 	}
-	return len(lines)
+	return line
 }

@@ -319,5 +319,5 @@ func TestMigrateUpSyntaxError(t *testing.T) {
 
 	err := migrate.Up(db, dir, nil)
 	version(t, db, 0)
-	assert.EqualError(t, err, "003_three.up.sql: syntax error at or near \"email\" (line: 1)")
+	assert.EqualError(t, err, "003_three.up.sql:1 syntax error at or near \"email\"")
 }
