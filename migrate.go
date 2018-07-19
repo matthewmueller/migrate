@@ -1,7 +1,6 @@
 package migrate
 
 import (
-	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -13,8 +12,7 @@ import (
 	"strings"
 
 	// postgres
-	_ "github.com/lib/pq"
-	pq "github.com/lib/pq"
+	"github.com/jackc/pgx"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
@@ -38,7 +36,7 @@ const (
 )
 
 // Up migrates the database up by n
-func Up(db *sql.DB, dir string, n *uint) error {
+func Up(conn *pgx.Conn, dir string, n *uint) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
@@ -48,7 +46,7 @@ func Up(db *sql.DB, dir string, n *uint) error {
 		i = *n
 	}
 
-	if err := ensureTableExists(db); err != nil {
+	if err := ensureTableExists(conn); err != nil {
 		return err
 	}
 
@@ -57,7 +55,7 @@ func Up(db *sql.DB, dir string, n *uint) error {
 		return err
 	}
 
-	remote, err := Version(db)
+	remote, err := Version(conn)
 	if err != nil {
 		return err
 	}
@@ -67,7 +65,7 @@ func Up(db *sql.DB, dir string, n *uint) error {
 		return err
 	}
 
-	tx, err := db.Begin()
+	tx, err := conn.Begin()
 	if err != nil {
 		return err
 	}
@@ -105,7 +103,7 @@ func Up(db *sql.DB, dir string, n *uint) error {
 }
 
 // Down migrates the database down by n
-func Down(db *sql.DB, dir string, n *uint) error {
+func Down(conn *pgx.Conn, dir string, n *uint) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
@@ -115,11 +113,11 @@ func Down(db *sql.DB, dir string, n *uint) error {
 		i = *n
 	}
 
-	if err := ensureTableExists(db); err != nil {
+	if err := ensureTableExists(conn); err != nil {
 		return err
 	}
 
-	remote, err := Version(db)
+	remote, err := Version(conn)
 	if err != nil {
 		return err
 	}
@@ -129,7 +127,7 @@ func Down(db *sql.DB, dir string, n *uint) error {
 		return err
 	}
 
-	tx, err := db.Begin()
+	tx, err := conn.Begin()
 	if err != nil {
 		return err
 	}
@@ -199,8 +197,8 @@ func exists(dir string) bool {
 	return true
 }
 
-func ensureTableExists(db *sql.DB) error {
-	r := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
+func ensureTableExists(conn *pgx.Conn) error {
+	r := conn.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
 	c := 0
 	if err := r.Scan(&c); err != nil {
 		return err
@@ -208,7 +206,7 @@ func ensureTableExists(db *sql.DB) error {
 	if c > 0 {
 		return nil
 	}
-	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
+	if _, err := conn.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
 	return nil
@@ -228,10 +226,10 @@ func localVersion(dir string) (uint, error) {
 }
 
 // Version gets the version from postgres
-func Version(db *sql.DB) (version uint, err error) {
-	err = db.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
+func Version(conn *pgx.Conn) (version uint, err error) {
+	err = conn.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
 	switch {
-	case err == sql.ErrNoRows:
+	case err == pgx.ErrNoRows:
 		return 0, nil
 	case err != nil:
 		return 0, err
@@ -240,14 +238,14 @@ func Version(db *sql.DB) (version uint, err error) {
 	}
 }
 
-func insertVersion(tx *sql.Tx, version uint) error {
+func insertVersion(tx *pgx.Tx, version uint) error {
 	if _, err := tx.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
 		return err
 	}
 	return nil
 }
 
-func deleteVersion(tx *sql.Tx, version uint) error {
+func deleteVersion(tx *pgx.Tx, version uint) error {
 	if _, err := tx.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
 		return err
 	}
@@ -346,17 +344,11 @@ func pad(n uint) string {
 
 func format(name string, data string, err error) error {
 	switch pqErr := err.(type) {
-	case *pq.Error:
-		if pqErr.Position == "" {
+	case pgx.PgError:
+		if pqErr.Position == 0 {
 			return fmt.Errorf("%s: %s", name, pqErr.Message)
 		}
-
-		position, e := strconv.Atoi(pqErr.Position)
-		if e != nil {
-			return err
-		}
-
-		return fmt.Errorf("%s:%d %s", name, line(data, position), pqErr.Message)
+		return fmt.Errorf("%s:%d %s", name, line(data, int(pqErr.Position)), pqErr.Message)
 	default:
 		return err
 	}

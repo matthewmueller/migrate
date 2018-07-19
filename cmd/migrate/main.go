@@ -1,14 +1,13 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"os"
 	"strings"
 
-	_ "github.com/lib/pq"
-
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
+	"github.com/jackc/pgx"
 	"github.com/matthewmueller/commander"
 	"github.com/matthewmueller/migrate"
 )
@@ -93,15 +92,20 @@ func main() {
 	}
 }
 
-func connect(url string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", url)
+func connect(url string) (*pgx.Conn, error) {
+	cfg, err := pgx.ParseConnectionString(url)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := db.Ping(); err != nil {
+	conn, err := pgx.Connect(cfg)
+	if err != nil {
 		return nil, err
 	}
 
-	return db, nil
+	if err := conn.Ping(context.TODO()); err != nil {
+		return nil, err
+	}
+
+	return conn, nil
 }

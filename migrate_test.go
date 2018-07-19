@@ -1,29 +1,32 @@
 package migrate_test
 
 import (
-	"database/sql"
 	"io/ioutil"
 	"path"
 	"sort"
 	"testing"
 
+	"github.com/jackc/pgx"
 	"github.com/matthewmueller/migrate"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func connect(t testing.TB) (*sql.DB, func()) {
-	db, err := sql.Open("postgres", "postgres://localhost:5432/migrate?sslmode=disable")
+var url = "postgres://localhost:5432/migrate?sslmode=disable"
+
+func connect(t testing.TB) (*pgx.Conn, func()) {
+	cfg, err := pgx.ParseConnectionString(url)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := db.Ping(); err != nil {
+	conn, err := pgx.Connect(cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	return db, func() {
-		if err := db.Close(); err != nil {
+	return conn, func() {
+		if err := conn.Close(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -50,22 +53,22 @@ func write(t testing.TB, name, data string) {
 	}
 }
 
-func drop(t testing.TB, db *sql.DB) {
-	if _, err := db.Exec(`drop table if exists "users"; drop table if exists "schema_migrations";`); err != nil {
+func drop(t testing.TB, conn *pgx.Conn) {
+	if _, err := conn.Exec(`drop table if exists "users"; drop table if exists "schema_migrations";`); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func version(t testing.TB, db *sql.DB, expected int) {
-	v, err := migrate.Version(db)
+func version(t testing.TB, conn *pgx.Conn, expected int) {
+	v, err := migrate.Version(conn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assert.Equal(t, uint(expected), v)
 }
 
-func emails(t testing.TB, db *sql.DB) (emails []string) {
-	rows, err := db.Query(`select * from "users" order by email asc;`)
+func emails(t testing.TB, conn *pgx.Conn) (emails []string) {
+	rows, err := conn.Query(`select * from "users" order by email asc;`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func TestMigrateUpDown(t *testing.T) {
 	}
 
 	_, err := db.Query(`select * from "users" order by email asc;`)
-	assert.EqualError(t, err, "pq: relation \"users\" does not exist")
+	assert.EqualError(t, err, "ERROR: relation \"users\" does not exist (SQLSTATE 42P01)")
 	version(t, db, 0)
 }
 
@@ -294,7 +297,7 @@ func TestMigrateUpDownUp(t *testing.T) {
 	}
 
 	_, err := db.Query(`select * from "users" order by email asc;`)
-	assert.EqualError(t, err, "pq: relation \"users\" does not exist")
+	assert.EqualError(t, err, "ERROR: relation \"users\" does not exist (SQLSTATE 42P01)")
 	version(t, db, 0)
 
 	if err := migrate.Up(db, dir, nil); err != nil {
