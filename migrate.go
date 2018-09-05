@@ -28,22 +28,68 @@ var Log log.Interface = &log.Logger{
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
 
-type direction uint
+type direction string
 
 const (
-	up direction = iota
-	down
+	up   direction = "up"
+	down           = "down"
 )
 
+// Embed the migrations into a library
+func Embed(dir string) error {
+	files, err := readdir(dir)
+	if err != nil {
+		return err
+	}
+	fmt.Println(files)
+	return nil
+}
+
+// New migration
+func New(dir, name string) error {
+	// get the local version
+	n, err := localVersion(dir)
+	if err != nil {
+		return err
+	}
+
+	// make the directory
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	extless := path.Join(dir, pad(n+1)+"_"+name)
+
+	// up file
+	if err := ioutil.WriteFile(extless+".up.sql", []byte{}, 0644); err != nil {
+		return err
+	}
+	Log.Infof("wrote: %s", extless+".up.sql")
+
+	// down file
+	if err := ioutil.WriteFile(extless+".down.sql", []byte{}, 0644); err != nil {
+		return err
+	}
+	Log.Infof("wrote: %s", extless+".down.sql")
+
+	return nil
+}
+
 // Up migrates the database up by n
-func Up(conn *pgx.Conn, dir string, n *uint) error {
+func Up(conn *pgx.Conn, dir, name string) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
 
+	files, err := migrations(dir, up)
+	if err != nil {
+		return err
+	}
+
 	var i uint = math.MaxUint32
-	if n != nil {
-		i = *n
+	if name != "" {
+		if i, err = extractVersionByName(files, up, name); err != nil {
+			return err
+		}
 	}
 
 	if err := ensureTableExists(conn); err != nil {
@@ -56,11 +102,6 @@ func Up(conn *pgx.Conn, dir string, n *uint) error {
 	}
 
 	remote, err := Version(conn)
-	if err != nil {
-		return err
-	}
-
-	files, err := migrations(dir, up)
 	if err != nil {
 		return err
 	}
@@ -103,14 +144,21 @@ func Up(conn *pgx.Conn, dir string, n *uint) error {
 }
 
 // Down migrates the database down by n
-func Down(conn *pgx.Conn, dir string, n *uint) error {
+func Down(conn *pgx.Conn, dir, name string) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
 
+	files, err := migrations(dir, down)
+	if err != nil {
+		return err
+	}
+
 	var i uint = math.MaxUint32
-	if n != nil {
-		i = *n
+	if name != "" {
+		if i, err = extractVersionByName(files, down, name); err != nil {
+			return err
+		}
 	}
 
 	if err := ensureTableExists(conn); err != nil {
@@ -118,11 +166,6 @@ func Down(conn *pgx.Conn, dir string, n *uint) error {
 	}
 
 	remote, err := Version(conn)
-	if err != nil {
-		return err
-	}
-
-	files, err := migrations(dir, down)
 	if err != nil {
 		return err
 	}
@@ -163,32 +206,32 @@ func Down(conn *pgx.Conn, dir string, n *uint) error {
 }
 
 // Create a migration in dir
-func Create(dir string, name string) error {
-	n, err := localVersion(dir)
-	if err != nil {
-		return err
-	}
+// func Create(dir string, name string) error {
+// 	n, err := localVersion(dir)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
+// 	if err := os.MkdirAll(dir, 0755); err != nil {
+// 		return err
+// 	}
 
-	extless := path.Join(dir, pad(n+1)+"_"+name)
+// 	extless := path.Join(dir, pad(n+1)+"_"+name)
 
-	// up file
-	if err := ioutil.WriteFile(extless+".up.sql", []byte{}, 0644); err != nil {
-		return err
-	}
-	Log.Infof("wrote: %s", extless+".up.sql")
+// 	// up file
+// 	if err := ioutil.WriteFile(extless+".up.sql", []byte{}, 0644); err != nil {
+// 		return err
+// 	}
+// 	Log.Infof("wrote: %s", extless+".up.sql")
 
-	// down file
-	if err := ioutil.WriteFile(extless+".down.sql", []byte{}, 0644); err != nil {
-		return err
-	}
-	Log.Infof("wrote: %s", extless+".down.sql")
+// 	// down file
+// 	if err := ioutil.WriteFile(extless+".down.sql", []byte{}, 0644); err != nil {
+// 		return err
+// 	}
+// 	Log.Infof("wrote: %s", extless+".down.sql")
 
-	return nil
-}
+// 	return nil
+// }
 
 func exists(dir string) bool {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -290,6 +333,16 @@ func extractVersion(filename string) (uint, error) {
 	}
 
 	return uint(n), nil
+}
+
+func extractVersionByName(files map[string]string, dir direction, name string) (uint, error) {
+	for file := range files {
+		fmt.Println(file, name+"."+string(dir)+".sql")
+		if strings.Contains(file, name+"."+string(dir)+".sql") {
+			return extractVersion(file)
+		}
+	}
+	return 0, fmt.Errorf("couldn't find %s", name)
 }
 
 func migrations(dir string, d direction) (map[string]string, error) {

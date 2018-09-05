@@ -39,7 +39,7 @@ func create(t testing.TB, names ...string) (dir string) {
 	}
 
 	for _, name := range names {
-		if err := migrate.Create(dir, name); err != nil {
+		if err := migrate.New(dir, name); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -122,7 +122,7 @@ func TestMigrateUp(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -144,8 +144,7 @@ func TestMigrateUpTwice(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	var n uint = 2
-	if err := migrate.Up(db, dir, &n); err != nil {
+	if err := migrate.Up(db, dir, "two"); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -155,7 +154,7 @@ func TestMigrateUpTwice(t *testing.T) {
 	assert.Equal(t, "m@gmail.com", es[0])
 	version(t, db, 2)
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	es = emails(t, db)
@@ -174,8 +173,7 @@ func TestMigrateUpThrice(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	var n uint = 2
-	if err := migrate.Up(db, dir, &n); err != nil {
+	if err := migrate.Up(db, dir, "two"); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -185,7 +183,7 @@ func TestMigrateUpThrice(t *testing.T) {
 	assert.Equal(t, "m@gmail.com", es[0])
 	version(t, db, 2)
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	es = emails(t, db)
@@ -194,7 +192,7 @@ func TestMigrateUpThrice(t *testing.T) {
 	assert.Equal(t, "t@gmail.com", es[1])
 	version(t, db, 3)
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	es = emails(t, db)
@@ -216,7 +214,7 @@ func TestMigrateUpDownTwo(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -227,8 +225,7 @@ func TestMigrateUpDownTwo(t *testing.T) {
 	assert.Equal(t, "t@gmail.com", es[1])
 	version(t, db, 3)
 
-	var n uint = 2
-	if err := migrate.Down(db, dir, &n); err != nil {
+	if err := migrate.Down(db, dir, "two"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,7 +246,7 @@ func TestMigrateUpDown(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -260,7 +257,7 @@ func TestMigrateUpDown(t *testing.T) {
 	assert.Equal(t, "t@gmail.com", es[1])
 	version(t, db, 3)
 
-	if err := migrate.Down(db, dir, nil); err != nil {
+	if err := migrate.Down(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -281,7 +278,7 @@ func TestMigrateUpDownUp(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer drop(t, db)
@@ -292,7 +289,7 @@ func TestMigrateUpDownUp(t *testing.T) {
 	assert.Equal(t, "t@gmail.com", es[1])
 	version(t, db, 3)
 
-	if err := migrate.Down(db, dir, nil); err != nil {
+	if err := migrate.Down(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,7 +297,7 @@ func TestMigrateUpDownUp(t *testing.T) {
 	assert.EqualError(t, err, "ERROR: relation \"users\" does not exist (SQLSTATE 42P01)")
 	version(t, db, 0)
 
-	if err := migrate.Up(db, dir, nil); err != nil {
+	if err := migrate.Up(db, dir, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +317,7 @@ func TestMigrateUpSyntaxError(t *testing.T) {
 	db, close := connect(t)
 	defer close()
 
-	err := migrate.Up(db, dir, nil)
+	err := migrate.Up(db, dir, "")
 	version(t, db, 0)
 	assert.EqualError(t, err, "003_three.up.sql:1 syntax error at or near \"email\"")
 }

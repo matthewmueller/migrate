@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"strings"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
@@ -17,12 +16,21 @@ func main() {
 	migrate.Log = log.Log
 
 	cli := commander.New("migrate", "Postgres migration CLI")
-	dir := cli.Flag("dir", "directory").Default("./").String()
+
+	{
+		new := cli.Command("new", "create a new migration")
+		name := new.Arg("name", "create a new migration by name").Required().String()
+		dir := new.Flag("dir", "migrations directory").Default("./migrations").String()
+		new.Run(func() error {
+			return migrate.New(*dir, *name)
+		})
+	}
 
 	{
 		up := cli.Command("up", "migrate up")
 		db := up.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
-		n := up.Arg("n", "migrate up by n").Uint()
+		name := up.Arg("name", "name of the migration to migrate up to").String()
+		dir := up.Flag("dir", "migrations directory").Default("./migrations").String()
 		up.Run(func() error {
 			conn, err := connect(*db)
 			if err != nil {
@@ -30,9 +38,9 @@ func main() {
 			}
 			defer conn.Close()
 
-			// TODO: cleanup
-			if *n == 0 {
-				n = nil
+			var n string
+			if name != nil {
+				n = *name
 			}
 
 			return migrate.Up(conn, *dir, n)
@@ -42,7 +50,8 @@ func main() {
 	{
 		down := cli.Command("down", "migrate down")
 		db := down.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
-		n := down.Arg("n", "migrate down by n").Uint()
+		name := down.Arg("name", "name of the migration to migrate down to").String()
+		dir := down.Flag("dir", "migrations directory").Default("./migrations").String()
 		down.Run(func() error {
 			conn, err := connect(*db)
 			if err != nil {
@@ -50,9 +59,9 @@ func main() {
 			}
 			defer conn.Close()
 
-			// TODO: cleanup
-			if *n == 0 {
-				n = nil
+			var n string
+			if name != nil {
+				n = *name
 			}
 
 			return migrate.Down(conn, *dir, n)
@@ -60,10 +69,10 @@ func main() {
 	}
 
 	{
-		create := cli.Command("create", "create migration files")
-		name := create.Arg("name", "name of the migration").Required().Strings()
-		create.Run(func() error {
-			return migrate.Create(*dir, strings.Join(*name, "_"))
+		embed := cli.Command("embed", "embed the migrations into an runnable module")
+		dir := embed.Flag("dir", "migrations directory").Default("./migrations").String()
+		embed.Run(func() error {
+			return migrate.Embed(dir)
 		})
 	}
 
