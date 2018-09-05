@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/apex/log"
@@ -72,7 +73,10 @@ func main() {
 		embed := cli.Command("embed", "embed the migrations into an runnable module")
 		dir := embed.Flag("dir", "migrations directory").Default("./migrations").String()
 		embed.Run(func() error {
-			return migrate.Embed(dir)
+			_ = dir
+			return errors.New("$ migrate embed is not finished yet")
+			// _ = dir
+			// return migrate.Embed(*dir)
 		})
 	}
 
