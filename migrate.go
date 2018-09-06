@@ -74,8 +74,13 @@ func New(dir, name string) error {
 	return nil
 }
 
-// Up migrates the database up by n
-func Up(conn *pgx.Conn, dir, name string) error {
+// Up migrates the database up to the latest migration
+func Up(conn *pgx.Conn, dir string) error {
+	return UpTo(conn, dir, "")
+}
+
+// UpTo migrates the database up to a particular migration
+func UpTo(conn *pgx.Conn, dir, name string) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
@@ -143,8 +148,13 @@ func Up(conn *pgx.Conn, dir, name string) error {
 	return tx.Commit()
 }
 
-// Down migrates the database down by n
-func Down(conn *pgx.Conn, dir, name string) error {
+// Down migrates the database fully down
+func Down(conn *pgx.Conn, dir string) error {
+	return DownTo(conn, dir, "")
+}
+
+// DownTo migrates the database to a migration in time
+func DownTo(conn *pgx.Conn, dir, name string) error {
 	if !exists(dir) {
 		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
 	}
@@ -204,34 +214,6 @@ func Down(conn *pgx.Conn, dir, name string) error {
 
 	return tx.Commit()
 }
-
-// Create a migration in dir
-// func Create(dir string, name string) error {
-// 	n, err := localVersion(dir)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if err := os.MkdirAll(dir, 0755); err != nil {
-// 		return err
-// 	}
-
-// 	extless := path.Join(dir, pad(n+1)+"_"+name)
-
-// 	// up file
-// 	if err := ioutil.WriteFile(extless+".up.sql", []byte{}, 0644); err != nil {
-// 		return err
-// 	}
-// 	Log.Infof("wrote: %s", extless+".up.sql")
-
-// 	// down file
-// 	if err := ioutil.WriteFile(extless+".down.sql", []byte{}, 0644); err != nil {
-// 		return err
-// 	}
-// 	Log.Infof("wrote: %s", extless+".down.sql")
-
-// 	return nil
-// }
 
 func exists(dir string) bool {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
