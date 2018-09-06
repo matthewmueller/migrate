@@ -44,7 +44,7 @@ func main() {
 				n = *name
 			}
 
-			return migrate.Up(conn, *dir, n)
+			return migrate.UpTo(conn, *dir, n)
 		})
 	}
 
@@ -65,7 +65,7 @@ func main() {
 				n = *name
 			}
 
-			return migrate.Down(conn, *dir, n)
+			return migrate.DownTo(conn, *dir, n)
 		})
 	}
 
