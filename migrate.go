@@ -289,7 +289,19 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 	return tx.Commit()
 }
 
+func exists(fs http.FileSystem, path string) error {
+	if _, err := fs.Open(sep); os.IsNotExist(err) {
+		return os.ErrNotExist
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 func getFiles(fs http.FileSystem) (files map[string]string, err error) {
+	if err := exists(fs, sep); err != nil {
+		return files, err
+	}
 	files = make(map[string]string)
 	walk := func(path string, info os.FileInfo, err error) error {
 		if err != nil {

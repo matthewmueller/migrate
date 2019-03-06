@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -76,14 +78,18 @@ func main() {
 
 			local, err := migrate.LocalVersion(http.Dir(*dir))
 			if err == migrate.ErrNoMigrations {
-				local = "no migrations yet"
+				return errors.New("no local migrations yet")
+			} else if os.IsNotExist(err) {
+				return fmt.Errorf("%s doesn't exist", *dir)
 			} else if err != nil {
 				return err
 			}
 
 			remote, err := migrate.RemoteVersion(db, http.Dir(*dir), *table)
 			if err == migrate.ErrNoMigrations {
-				remote = "no migrations yet"
+				return errors.New("no remote migrations yet")
+			} else if os.IsNotExist(err) {
+				return fmt.Errorf("%s doesn't exist", *dir)
 			} else if err != nil {
 				return err
 			}
