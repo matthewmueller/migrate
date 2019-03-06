@@ -199,7 +199,6 @@ func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i
 		return err
 	}
 	local := migrations[len(migrations)-1].Version
-
 	tx, err := db.Begin()
 	if err != nil {
 		return err

@@ -37,21 +37,26 @@ func main() {
 		db := up.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := up.Arg("n", "go up by n").Int()
 		up.Run(func() error {
-			conn, err := connect(todo, *db)
+			db, err := connect(todo, *db)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
-			if n != nil {
-				return migrate.UpBy(log, conn, http.Dir(*dir), *table, *n)
+			defer db.Close()
+
+			// be a bit extra careful here
+			switch {
+			case *n == 0:
+				return migrate.Up(log, db, http.Dir(*dir), *table)
+			case *n > 0:
+				return migrate.UpBy(log, db, http.Dir(*dir), *table, *n)
 			}
-			return migrate.Up(log, conn, http.Dir(*dir), *table)
+			return nil
 		})
 	}
 
 	{ // migrate down
 		down := cli.Command("down", "migrate down")
-		db := down.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
+		db := down.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := down.Arg("n", "go up by n").Int()
 		down.Run(func() error {
 			db, err := connect(todo, *db)
@@ -59,10 +64,15 @@ func main() {
 				return err
 			}
 			defer db.Close()
-			if n != nil {
-				return migrate.UpBy(log, db, http.Dir(*dir), *table, *n)
+
+			// be a bit extra careful here
+			switch {
+			case *n == 0:
+				return migrate.Down(log, db, http.Dir(*dir), *table)
+			case *n > 0:
+				return migrate.DownBy(log, db, http.Dir(*dir), *table, *n)
 			}
-			return migrate.Up(log, db, http.Dir(*dir), *table)
+			return nil
 		})
 	}
 

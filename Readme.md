@@ -1,6 +1,8 @@
 # migrate
 
-No-frills migration utility.
+[![GoDoc](https://godoc.org/github.com/matthewmueller/migrate?status.svg)](https://godoc.org/github.com/matthewmueller/migrate)
+
+No-frills migration utility for postgres.
 
 ## Installation
 
@@ -11,30 +13,33 @@ go get github.com/matthewmueller/migrate
 ## Usage
 
 ```
-usage: migrate [<flags>] <command> [<args> ...]
+Usage:
 
-Postgres migration CLI
+  migrate [<flags>] <command> [<args> ...]
 
 Flags:
-  --help      Show context-sensitive help (also try --help-long and --help-man).
-  --dir="db"  directory
+
+  -h, --help             Output usage information.
+      --dir="./migrate"  migrations directory
+      --table="migrate"  table name
 
 Commands:
-  help [<command>...]
-    Show help.
 
-  up --db=DB [<n>]
-    migrate up
-
-  down --db=DB [<n>]
-    migrate down
-
-  create <name>...
-    create migration files
-
-  info --db=DB
-    get the current migration number
+  help                 Show help for a command.
+  new                  create a new migration
+  up                   migrate up
+  down                 migrate down
+  info                 info on the current migration
 ```
+
+## TODO
+
+- Generic drivers
+- Support embedded migrations
+
+## Authors
+
+- Matt Mueller [https://twitter.com/mattmueller](https://twitter.com/mattmueller)
 
 ## License
 
