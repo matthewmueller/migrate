@@ -1,6 +1,6 @@
 # migrate
 
-No-frills migration utility for postgres
+No-frills migration utility.
 
 ## Installation
 

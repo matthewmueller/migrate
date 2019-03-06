@@ -2,100 +2,94 @@ package main
 
 import (
 	"context"
-	"errors"
+	"database/sql"
+	"net/http"
 	"os"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
-	"github.com/jackc/pgx"
 	"github.com/matthewmueller/commander"
 	"github.com/matthewmueller/migrate"
 )
 
 func main() {
-	log.SetHandler(cli.Default)
-	migrate.Log = log.Log
+	log := &log.Logger{
+		Handler: cli.Default,
+		Level:   log.InfoLevel,
+	}
+
+	todo := context.TODO()
 
 	cli := commander.New("migrate", "Postgres migration CLI")
+	dir := cli.Flag("dir", "migrations directory").Default("./migrate").String()
+	table := cli.Flag("table", "table name").Default("migrate").String()
 
 	{
 		new := cli.Command("new", "create a new migration")
 		name := new.Arg("name", "create a new migration by name").Required().String()
-		dir := new.Flag("dir", "migrations directory").Default("./migrations").String()
-		new.Run(func() error {
-			return migrate.New(*dir, *name)
-		})
+		new.Run(func() error { return migrate.New(log, *dir, *name) })
 	}
 
-	{
+	{ // migrate up
 		up := cli.Command("up", "migrate up")
-		db := up.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
-		name := up.Arg("name", "name of the migration to migrate up to").String()
-		dir := up.Flag("dir", "migrations directory").Default("./migrations").String()
+		db := up.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
+		n := up.Arg("n", "go up by n").Int()
 		up.Run(func() error {
-			conn, err := connect(*db)
+			conn, err := connect(todo, *db)
 			if err != nil {
 				return err
 			}
 			defer conn.Close()
-
-			var n string
-			if name != nil {
-				n = *name
+			if n != nil {
+				return migrate.UpBy(log, conn, http.Dir(*dir), *table, *n)
 			}
-
-			return migrate.UpTo(conn, *dir, n)
+			return migrate.Up(log, conn, http.Dir(*dir), *table)
 		})
 	}
 
-	{
+	{ // migrate down
 		down := cli.Command("down", "migrate down")
 		db := down.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
-		name := down.Arg("name", "name of the migration to migrate down to").String()
-		dir := down.Flag("dir", "migrations directory").Default("./migrations").String()
+		n := down.Arg("n", "go up by n").Int()
 		down.Run(func() error {
-			conn, err := connect(*db)
+			db, err := connect(todo, *db)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
-
-			var n string
-			if name != nil {
-				n = *name
+			defer db.Close()
+			if n != nil {
+				return migrate.UpBy(log, db, http.Dir(*dir), *table, *n)
 			}
-
-			return migrate.DownTo(conn, *dir, n)
+			return migrate.Up(log, db, http.Dir(*dir), *table)
 		})
 	}
 
-	{
-		embed := cli.Command("embed", "embed the migrations into an runnable module")
-		dir := embed.Flag("dir", "migrations directory").Default("./migrations").String()
-		embed.Run(func() error {
-			_ = dir
-			return errors.New("$ migrate embed is not finished yet")
-			// _ = dir
-			// return migrate.Embed(*dir)
-		})
-	}
-
-	{
-		info := cli.Command("info", "get the current migration number")
-		db := info.Flag("db", "database url (e.g. postgres://localhost:5432)").Required().String()
+	{ // info about the current migration
+		info := cli.Command("info", "info on the current migration")
+		db := info.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		info.Run(func() error {
-			conn, err := connect(*db)
+			db, err := connect(todo, *db)
 			if err != nil {
 				return err
 			}
-			defer conn.Close()
+			defer db.Close()
 
-			v, err := migrate.Version(conn)
-			if err != nil {
+			local, err := migrate.LocalVersion(http.Dir(*dir))
+			if err == migrate.ErrNoMigrations {
+				local = "no migrations yet"
+			} else if err != nil {
 				return err
 			}
 
-			log.Infof("currently at: %d", v)
+			remote, err := migrate.RemoteVersion(db, http.Dir(*dir), *table)
+			if err == migrate.ErrNoMigrations {
+				remote = "no migrations yet"
+			} else if err != nil {
+				return err
+			}
+
+			log.Infof("local: %s", local)
+			log.Infof("remote: %s", remote)
 			return nil
 		})
 	}
@@ -105,20 +99,13 @@ func main() {
 	}
 }
 
-func connect(url string) (*pgx.Conn, error) {
-	cfg, err := pgx.ParseConnectionString(url)
+func connect(ctx context.Context, url string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", url)
 	if err != nil {
 		return nil, err
 	}
-
-	conn, err := pgx.Connect(cfg)
-	if err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-
-	if err := conn.Ping(context.TODO()); err != nil {
-		return nil, err
-	}
-
-	return conn, nil
+	return db, nil
 }

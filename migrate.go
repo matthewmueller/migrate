@@ -1,134 +1,219 @@
 package migrate
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
+	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/lib/pq"
+	"github.com/mattes/migrate/database"
+	"github.com/matthewmueller/migrate/internal/dedent"
+	"github.com/shurcooL/httpfs/vfsutil"
+
 	// postgres
-	"github.com/jackc/pgx"
 
 	"github.com/apex/log"
-	"github.com/apex/log/handlers/discard"
 )
-
-var tableName = "schema_migrations"
-
-// Log default interface discards
-var Log log.Interface = &log.Logger{
-	Handler: discard.Default,
-	Level:   log.InfoLevel,
-}
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
+var sep = string(os.PathSeparator)
+var tableName = "migrate"
 
-type direction string
+// ErrZerothMigration occurs when the migrations start at 000
+var ErrZerothMigration = errors.New("migrations should start at 001 not 000")
 
+// ErrNoMigrations happens when there are no migrations
+var ErrNoMigrations = errors.New("no migrations")
+
+// Direction string
+type Direction string
+
+// Directions
 const (
-	up   direction = "up"
-	down           = "down"
+	up   Direction = "up"
+	down Direction = "down"
 )
 
-// Embed the migrations into a library
-func Embed(dir string) error {
-	files, err := readdir(dir)
-	if err != nil {
-		return err
-	}
-	fmt.Println(files)
-	return nil
+// WritableFS is a read-write filesystem
+type writeableFS interface {
+	http.FileSystem
+	OpenFile(name string, flag int, perm os.FileMode) (File, error)
 }
 
-// New migration
-func New(dir, name string) error {
-	// get the local version
-	n, err := localVersion(dir)
-	if err != nil {
-		return err
-	}
+// File is a writable file
+type File interface {
+	http.File
+	io.Writer
+}
 
-	// make the directory
+var _ File = (*os.File)(nil)
+
+// New creates a new migrations in dir
+// TODO: figure out a writable virtual file-system for this
+func New(log log.Interface, dir string, name string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	extless := path.Join(dir, pad(n+1)+"_"+name)
+	files, err := getFilesFromOS(dir)
+	if err != nil {
+		return err
+	}
+	migrations, err := toMigrations(files, up)
+	if err != nil {
+		return err
+	}
+	var latest uint
+	if len(migrations) > 0 {
+		latest = migrations[len(migrations)-1].Version
+	}
+	base := path.Join(dir, pad(latest+1)+"_"+name)
 
 	// up file
-	if err := ioutil.WriteFile(extless+".up.sql", []byte{}, 0644); err != nil {
+	if err := ioutil.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	Log.Infof("wrote: %s", extless+".up.sql")
+	log.Infof("wrote: %s", base+".up.sql")
 
 	// down file
-	if err := ioutil.WriteFile(extless+".down.sql", []byte{}, 0644); err != nil {
+	if err := ioutil.WriteFile(base+".down.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	Log.Infof("wrote: %s", extless+".down.sql")
+	log.Infof("wrote: %s", base+".down.sql")
 
 	return nil
 }
 
-// Up migrates the database up to the latest migration
-func Up(conn *pgx.Conn, dir string) error {
-	return UpTo(conn, dir, "")
+// Migration struct
+type Migration struct {
+	Name    string
+	Code    string
+	Dir     Direction
+	Version uint
 }
 
-// UpTo migrates the database up to a particular migration
-func UpTo(conn *pgx.Conn, dir, name string) error {
-	if !exists(dir) {
-		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
-	}
-
-	files, err := migrations(dir, up)
-	if err != nil {
-		return err
-	}
-
-	var i uint = math.MaxUint32
-	if name != "" {
-		if i, err = extractVersionByName(files, up, name); err != nil {
-			return err
+// migrations takes a file map and turns it into a sorted list of migrations
+func toMigrations(files map[string]string, d Direction) (migs []*Migration, err error) {
+	for path, code := range files {
+		if !reFile.MatchString(path) {
+			continue
 		}
+		n, err := getVersion(path)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return nil, ErrZerothMigration
+		}
+		dir, err := getDirection(path)
+		if err != nil {
+			return nil, err
+		}
+		if dir != d {
+			continue
+		}
+		migs = append(migs, &Migration{
+			Name:    path,
+			Dir:     dir,
+			Code:    code,
+			Version: n,
+		})
 	}
+	sort.Slice(migs, func(i, j int) bool {
+		return migs[i].Version < migs[j].Version
+	})
+	return migs, nil
+}
 
-	if err := ensureTableExists(conn); err != nil {
-		return err
+// LocalVersion fetches the latest local version
+func LocalVersion(fs http.FileSystem) (name string, err error) {
+	files, err := getFiles(fs)
+	if err != nil {
+		return name, err
 	}
+	migrations, err := toMigrations(files, up)
+	if err != nil {
+		return name, err
+	} else if len(migrations) == 0 {
+		return name, ErrNoMigrations
+	}
+	migration := migrations[len(migrations)-1]
+	return migration.Name, nil
+}
 
-	local, err := localVersion(dir)
+// RemoteVersion fetches the latest local version
+func RemoteVersion(db *sql.DB, fs http.FileSystem, tableName string) (name string, err error) {
+	if err := ensureTableExists(db, tableName); err != nil {
+		return name, err
+	}
+	remote, err := getRemoteVersion(db, tableName)
+	if err != nil {
+		return name, err
+	} else if remote == 0 {
+		return name, ErrNoMigrations
+	}
+	files, err := getFiles(fs)
+	if err != nil {
+		return name, err
+	}
+	migrations, err := toMigrations(files, up)
+	if err != nil {
+		return name, err
+	} else if len(migrations) == 0 {
+		return name, ErrNoMigrations
+	}
+	migration := migrations[remote-1]
+	return migration.Name, nil
+}
+
+// Up migrates the database up to the latest migration
+func Up(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+	return UpBy(log, db, fs, tableName, math.MaxInt32)
+}
+
+// UpBy migrations the database up by i
+func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+	files, err := getFiles(fs)
 	if err != nil {
 		return err
 	}
-
-	remote, err := Version(conn)
+	migrations, err := toMigrations(files, up)
 	if err != nil {
 		return err
 	}
+	if err := ensureTableExists(db, tableName); err != nil {
+		return err
+	}
+	remote, err := getRemoteVersion(db, tableName)
+	if err != nil {
+		return err
+	}
+	local := migrations[len(migrations)-1].Version
 
-	tx, err := conn.Begin()
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	// next remote
 	remote++
 	for i > 0 && remote <= local {
-		name, err := at(files, remote)
-		if err != nil {
-			return err
-		}
+		migration := migrations[remote-1]
 
-		migration, isset := files[name]
-		if isset {
-			if _, err := tx.Exec(migration); err != nil {
-				return format(name, migration, err)
-			}
+		// execute the migration code
+		if _, err := tx.Exec(migration.Code); err != nil {
+			return format(migration, err)
 		}
 
 		// increment version
@@ -136,9 +221,8 @@ func UpTo(conn *pgx.Conn, dir, name string) error {
 			return err
 		}
 
-		if isset {
-			Log.Info(name)
-		}
+		// log the next migration
+		log.Info(migration.Name)
 
 		// update counts
 		i--
@@ -148,66 +232,56 @@ func UpTo(conn *pgx.Conn, dir, name string) error {
 	return tx.Commit()
 }
 
-// Down migrates the database fully down
-func Down(conn *pgx.Conn, dir string) error {
-	return DownTo(conn, dir, "")
+// Down migrates the database down to 0
+func Down(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+	return DownBy(log, db, fs, tableName, math.MaxInt32)
 }
 
-// DownTo migrates the database to a migration in time
-func DownTo(conn *pgx.Conn, dir, name string) error {
-	if !exists(dir) {
-		return fmt.Errorf("migrate: directory doesn't exist: %s", dir)
-	}
-
-	files, err := migrations(dir, down)
+// DownBy migrations the database down by i
+func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+	files, err := getFiles(fs)
 	if err != nil {
 		return err
 	}
-
-	var i uint = math.MaxUint32
-	if name != "" {
-		if i, err = extractVersionByName(files, down, name); err != nil {
-			return err
-		}
-	}
-
-	if err := ensureTableExists(conn); err != nil {
-		return err
-	}
-
-	remote, err := Version(conn)
+	migrations, err := toMigrations(files, down)
 	if err != nil {
 		return err
 	}
+	if err := ensureTableExists(db, tableName); err != nil {
+		return err
+	}
+	// get the current remote
+	remote, err := getRemoteVersion(db, tableName)
+	if err != nil {
+		return err
+	}
+	// get the earliest local
+	local := migrations[0].Version
 
-	tx, err := conn.Begin()
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	for i > 0 && remote > 0 {
-		name, err := at(files, remote)
-		if err != nil {
-			return err
+	// next remote
+	for i > 0 && remote >= local {
+		migration := migrations[remote-1]
+
+		// execute the migration code
+		if _, err := tx.Exec(migration.Code); err != nil {
+			return format(migration, err)
 		}
 
-		migration, isset := files[name]
-		if isset {
-			if _, err := tx.Exec(migration); err != nil {
-				return format(name, migration, err)
-			}
-		}
-
-		// delete version
+		// increment version
 		if err := deleteVersion(tx, remote); err != nil {
 			return err
 		}
 
-		if isset {
-			Log.Info(name)
-		}
+		// log the next migration
+		log.Info(migration.Name)
 
+		// update counts
 		i--
 		remote--
 	}
@@ -215,15 +289,92 @@ func DownTo(conn *pgx.Conn, dir, name string) error {
 	return tx.Commit()
 }
 
-func exists(dir string) bool {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return false
+func getFiles(fs http.FileSystem) (files map[string]string, err error) {
+	files = make(map[string]string)
+	walk := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		} else if info.IsDir() {
+			return nil
+		}
+		file, err := fs.Open(path)
+		if err != nil {
+			return err
+		}
+		buf, err := ioutil.ReadAll(file)
+		if err != nil {
+			return err
+		}
+		normpath := strings.Trim(path, sep)
+		files[normpath] = strings.TrimSpace(dedent.String(string(buf)))
+		return err
 	}
-	return true
+	if err := vfsutil.Walk(fs, sep, walk); err != nil {
+		return files, err
+	}
+	return files, nil
 }
 
-func ensureTableExists(conn *pgx.Conn) error {
-	r := conn.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
+func getFilesFromOS(dir string) (files map[string]string, err error) {
+	files = make(map[string]string)
+	walk := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		} else if info.IsDir() {
+			return nil
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		buf, err := ioutil.ReadAll(file)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		normpath := strings.Trim(rel, sep)
+		files[normpath] = strings.TrimSpace(dedent.String(string(buf)))
+		return err
+	}
+	if err := filepath.Walk(dir, walk); err != nil {
+		return files, err
+	}
+	return files, nil
+}
+
+// get the version
+func getVersion(filename string) (uint, error) {
+	parts := strings.SplitN(filename, "_", 2)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("invalid migration filename: %s", filename)
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("migration must be higher than 0: %d", n)
+	}
+	return uint(n), nil
+}
+
+// get the direction
+func getDirection(filename string) (Direction, error) {
+	if strings.Contains(filename, "."+string(up)+".") {
+		return up, nil
+	}
+	if strings.Contains(filename, "."+string(down)+".") {
+		return down, nil
+	}
+	return "", errors.New("filepath must specify the direction up or down (e.g. 000_setup.up.sql)")
+}
+
+// ensure the table exists
+func ensureTableExists(db *sql.DB, tableName string) error {
+	r := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
 	c := 0
 	if err := r.Scan(&c); err != nil {
 		return err
@@ -231,30 +382,17 @@ func ensureTableExists(conn *pgx.Conn) error {
 	if c > 0 {
 		return nil
 	}
-	if _, err := conn.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
 	return nil
 }
 
-// localVersion gets the latest version in the migrations dir
-func localVersion(dir string) (uint, error) {
-	filenames, err := readdir(dir)
-	if err != nil {
-		return 0, err
-	} else if len(filenames) == 0 {
-		return 0, nil
-	}
-
-	last := filenames[len(filenames)-1]
-	return extractVersion(last)
-}
-
 // Version gets the version from postgres
-func Version(conn *pgx.Conn) (version uint, err error) {
-	err = conn.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
+func getRemoteVersion(db *sql.DB, tableName string) (version uint, err error) {
+	err = db.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
 	switch {
-	case err == pgx.ErrNoRows:
+	case err == sql.ErrNoRows:
 		return 0, nil
 	case err != nil:
 		return 0, err
@@ -263,109 +401,23 @@ func Version(conn *pgx.Conn) (version uint, err error) {
 	}
 }
 
-func insertVersion(tx *pgx.Tx, version uint) error {
+// insert a new version into the table
+func insertVersion(tx *sql.Tx, version uint) error {
 	if _, err := tx.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
 		return err
 	}
 	return nil
 }
 
-func deleteVersion(tx *pgx.Tx, version uint) error {
+// delete a version from the table
+func deleteVersion(tx *sql.Tx, version uint) error {
 	if _, err := tx.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
 		return err
 	}
 	return nil
 }
 
-func readdir(dir string) (filenames []string, err error) {
-	files, err := ioutil.ReadDir(dir)
-	if err != nil && !os.IsNotExist(err) {
-		return filenames, err
-	}
-
-	if len(files) == 0 {
-		return filenames, nil
-	}
-
-	for _, file := range files {
-		name := file.Name()
-		if !reFile.MatchString(name) {
-			continue
-		}
-		filenames = append(filenames, name)
-	}
-	sort.Strings(filenames)
-
-	return filenames, nil
-}
-
-func extractVersion(filename string) (uint, error) {
-	parts := strings.SplitN(filename, "_", 2)
-	if len(parts) != 2 {
-		return 0, fmt.Errorf("invalid migration filename: %s", filename)
-	}
-
-	n, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, err
-	}
-
-	if n < 0 {
-		return 0, fmt.Errorf("migration must be higher than 0: %d", n)
-	}
-
-	return uint(n), nil
-}
-
-func extractVersionByName(files map[string]string, dir direction, name string) (uint, error) {
-	for file := range files {
-		fmt.Println(file, name+"."+string(dir)+".sql")
-		if strings.Contains(file, name+"."+string(dir)+".sql") {
-			return extractVersion(file)
-		}
-	}
-	return 0, fmt.Errorf("couldn't find %s", name)
-}
-
-func migrations(dir string, d direction) (map[string]string, error) {
-	filenames, err := readdir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	migrations := map[string]string{}
-	for _, filename := range filenames {
-		if d == up && !strings.Contains(filename, ".up.sql") {
-			continue
-		}
-		if d == down && !strings.Contains(filename, ".down.sql") {
-			continue
-		}
-
-		file, err := ioutil.ReadFile(path.Join(dir, filename))
-		if err != nil {
-			return nil, err
-		}
-
-		migrations[filename] = string(file)
-	}
-
-	return migrations, nil
-}
-
-func at(migrations map[string]string, n uint) (string, error) {
-	for name := range migrations {
-		v, err := extractVersion(name)
-		if err != nil {
-			return "", err
-		}
-		if n == v {
-			return name, nil
-		}
-	}
-	return "", nil
-}
-
+// pad a migration
 func pad(n uint) string {
 	switch {
 	case n < 10:
@@ -377,24 +429,64 @@ func pad(n uint) string {
 	}
 }
 
-func format(name string, data string, err error) error {
-	switch pqErr := err.(type) {
-	case pgx.PgError:
-		if pqErr.Position == 0 {
-			return fmt.Errorf("%s: %s", name, pqErr.Message)
+// format a migrations error message
+func format(migration *Migration, err error) error {
+	name := migration.Name
+	code := migration.Code
+	switch pgErr := err.(type) {
+	case *pq.Error:
+		var line uint
+		var col uint
+		var lineColOK bool
+		if pgErr.Position != "" {
+			if pos, err := strconv.ParseUint(pgErr.Position, 10, 64); err == nil {
+				line, col, lineColOK = computeLineFromPos(code, int(pos))
+			}
 		}
-		return fmt.Errorf("%s:%d %s", name, line(data, int(pqErr.Position)), pqErr.Message)
+		message := fmt.Sprintf("%s failed. %s", name, pgErr.Message)
+		if lineColOK {
+			message = fmt.Sprintf("%s on column %d", message, col)
+		}
+		if pgErr.Detail != "" {
+			message = fmt.Sprintf("%s, %s", message, pgErr.Detail)
+		}
+		return database.Error{OrigErr: err, Err: message, Line: line}
 	default:
-		return err
+		return database.Error{OrigErr: err, Err: "migration failed", Query: []byte(code)}
 	}
 }
 
-func line(data string, pos int) (line int) {
-	line = 1
-	for i := 0; i < pos; i++ {
-		if data[i] == '\n' {
-			line++
+func computeLineFromPos(s string, pos int) (line uint, col uint, ok bool) {
+	// replace crlf with lf
+	s = strings.Replace(s, "\r\n", "\n", -1)
+	// pg docs: pos uses index 1 for the first character, and positions are measured in characters not bytes
+	runes := []rune(s)
+	if pos > len(runes) {
+		return 0, 0, false
+	}
+	sel := runes[:pos]
+	line = uint(runesCount(sel, newLine) + 1)
+	col = uint(pos - 1 - runesLastIndex(sel, newLine))
+	return line, col, true
+}
+
+const newLine = '\n'
+
+func runesCount(input []rune, target rune) int {
+	var count int
+	for _, r := range input {
+		if r == target {
+			count++
 		}
 	}
-	return line
+	return count
+}
+
+func runesLastIndex(input []rune, target rune) int {
+	for i := len(input) - 1; i >= 0; i-- {
+		if input[i] == target {
+			return i
+		}
+	}
+	return -1
 }
