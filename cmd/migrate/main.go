@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
 	"github.com/matthewmueller/commander"
 	"github.com/matthewmueller/migrate"
+	prompt "github.com/tj/go-prompt"
 )
 
 func main() {
@@ -28,8 +30,19 @@ func main() {
 
 	{
 		new := cli.Command("new", "create a new migration")
-		name := new.Arg("name", "create a new migration by name").Required().String()
-		new.Run(func() error { return migrate.New(log, *dir, *name) })
+		name := new.Arg("name", "create a new migration by name").String()
+		new.Run(func() error {
+			if *name != "" {
+				return migrate.New(log, *dir, *name)
+			}
+			var name string
+		askName:
+			name = prompt.StringRequired("  • Migration name? ")
+			if len(strings.TrimSpace(name)) == 0 {
+				goto askName
+			}
+			return migrate.New(log, *dir, name)
+		})
 	}
 
 	{ // migrate up

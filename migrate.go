@@ -18,6 +18,7 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/mattes/migrate/database"
+	text "github.com/matthewmueller/go-text"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/shurcooL/httpfs/vfsutil"
 
@@ -77,7 +78,7 @@ func New(log log.Interface, dir string, name string) error {
 	if len(migrations) > 0 {
 		latest = migrations[len(migrations)-1].Version
 	}
-	base := path.Join(dir, pad(latest+1)+"_"+name)
+	base := path.Join(dir, pad(latest+1)+"_"+text.Snake(name))
 
 	// up file
 	if err := ioutil.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {

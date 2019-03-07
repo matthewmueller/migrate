@@ -382,15 +382,15 @@ func TestNew(t *testing.T) {
 	exists(t, "migrate/001_setup.up.sql")
 	exists(t, "migrate/001_setup.down.sql")
 
-	err = migrate.New(log, "migrate", "teams")
+	err = migrate.New(log, "migrate", "create teams")
 	assert.NoError(t, err)
-	exists(t, "migrate/002_teams.up.sql")
-	exists(t, "migrate/002_teams.down.sql")
+	exists(t, "migrate/002_create_teams.up.sql")
+	exists(t, "migrate/002_create_teams.down.sql")
 
-	err = migrate.New(log, "migrate", "users")
+	err = migrate.New(log, "migrate", "new-users")
 	assert.NoError(t, err)
-	exists(t, "migrate/003_users.up.sql")
-	exists(t, "migrate/003_users.down.sql")
+	exists(t, "migrate/003_new_users.up.sql")
+	exists(t, "migrate/003_new_users.down.sql")
 
 	if !t.Failed() {
 		assert.NoError(t, os.RemoveAll("migrate"))
