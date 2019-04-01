@@ -6,7 +6,7 @@ No-frills migration utility for PostgreSQL.
 
 ## Features
 
-- Stable in use across 10+ projects
+- Stable and in use across 10+ projects over 3 years.
 - Supports migrations from a [virtual file-system](https://github.com/matthewmueller/migrate/blob/bfacd7c1d10ef75d68406eab8e389384f9771a81/migrate_test.go#L50-L72)
 
 ## Installation
