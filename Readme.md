@@ -2,7 +2,12 @@
 
 [![GoDoc](https://godoc.org/github.com/matthewmueller/migrate?status.svg)](https://godoc.org/github.com/matthewmueller/migrate)
 
-No-frills migration utility for postgres.
+No-frills migration utility for PostgreSQL.
+
+## Features
+
+- Stable in use across 10+ projects
+- Supports migrations from a [virtual file-system](https://github.com/matthewmueller/migrate/blob/bfacd7c1d10ef75d68406eab8e389384f9771a81/migrate_test.go#L50-L72)
 
 ## Installation
 
@@ -32,10 +37,9 @@ Commands:
   info                 info on the current migration
 ```
 
-## TODO
+## Help Wanted
 
-- Generic drivers
-- Support embedded migrations
+- Generic driver interface
 
 ## Authors
 
