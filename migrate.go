@@ -29,7 +29,8 @@ import (
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
 var sep = string(os.PathSeparator)
-var tableName = "migrate"
+
+// var tableName = "migrate"
 
 // ErrZerothMigration occurs when the migrations start at 000
 var ErrZerothMigration = errors.New("migrations should start at 001 not 000")
@@ -217,7 +218,7 @@ func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i
 		}
 
 		// increment version
-		if err := insertVersion(tx, remote); err != nil {
+		if err := insertVersion(tx, tableName, remote); err != nil {
 			return err
 		}
 
@@ -274,7 +275,7 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 		}
 
 		// increment version
-		if err := deleteVersion(tx, remote); err != nil {
+		if err := deleteVersion(tx, tableName, remote); err != nil {
 			return err
 		}
 
@@ -414,7 +415,7 @@ func getRemoteVersion(db *sql.DB, tableName string) (version uint, err error) {
 }
 
 // insert a new version into the table
-func insertVersion(tx *sql.Tx, version uint) error {
+func insertVersion(tx *sql.Tx, tableName string, version uint) error {
 	if _, err := tx.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
 		return err
 	}
@@ -422,7 +423,7 @@ func insertVersion(tx *sql.Tx, version uint) error {
 }
 
 // delete a version from the table
-func deleteVersion(tx *sql.Tx, version uint) error {
+func deleteVersion(tx *sql.Tx, tableName string, version uint) error {
 	if _, err := tx.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
 		return err
 	}
