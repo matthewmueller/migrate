@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,12 +18,12 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
-	"github.com/mattes/migrate/database"
 	text "github.com/matthewmueller/go-text"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/shurcooL/httpfs/vfsutil"
 
-	// postgres
+	// sqlite db
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/apex/log"
 )
@@ -37,6 +38,9 @@ var ErrZerothMigration = errors.New("migrations should start at 001 not 000")
 
 // ErrNoMigrations happens when there are no migrations
 var ErrNoMigrations = errors.New("no migrations")
+
+// ErrNotEnoughMigrations happens when your migrations folder has less migrations than remote's version
+var ErrNotEnoughMigrations = errors.New("remote migration version greater than the number of migrations you have")
 
 // Direction string
 type Direction string
@@ -60,6 +64,31 @@ type File interface {
 }
 
 var _ File = (*os.File)(nil)
+
+// Connect to a database depending on the URL schema
+func Connect(conn string) (db *sql.DB, err error) {
+	u, err := url.Parse(conn)
+	if err != nil {
+		return nil, err
+	}
+	switch u.Scheme {
+	case "postgres":
+		return sql.Open("postgres", u.String())
+	case "sqlite", "sqlite3":
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(cwd, u.Path)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return nil, err
+		}
+		dbpath := path + "?" + u.Query().Encode()
+		return sql.Open("sqlite3", dbpath)
+	default:
+		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", u.Scheme)
+	}
+}
 
 // New creates a new migrations in dir
 // TODO: figure out a writable virtual file-system for this
@@ -267,6 +296,9 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 
 	// next remote
 	for i > 0 && remote >= local {
+		if len(migrations) < int(remote) {
+			return ErrNotEnoughMigrations
+		}
 		migration := migrations[remote-1]
 
 		// execute the migration code
@@ -387,14 +419,14 @@ func getDirection(filename string) (Direction, error) {
 
 // ensure the table exists
 func ensureTableExists(db *sql.DB, tableName string) error {
-	r := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
-	c := 0
-	if err := r.Scan(&c); err != nil {
-		return err
-	}
-	if c > 0 {
-		return nil
-	}
+	// r := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
+	// c := 0
+	// if err := r.Scan(&c); err != nil {
+	// 	return err
+	// }
+	// if c > 0 {
+	// 	return nil
+	// }
 	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
@@ -463,9 +495,9 @@ func format(migration *Migration, err error) error {
 		if pgErr.Detail != "" {
 			message = fmt.Sprintf("%s, %s", message, pgErr.Detail)
 		}
-		return database.Error{OrigErr: err, Err: message, Line: line}
+		return Error{OrigErr: err, Err: message, Line: line}
 	default:
-		return database.Error{OrigErr: err, Err: "migration failed", Query: []byte(code)}
+		return Error{OrigErr: err, Err: "migration failed", Query: []byte(code)}
 	}
 }
 
@@ -502,4 +534,26 @@ func runesLastIndex(input []rune, target rune) int {
 		}
 	}
 	return -1
+}
+
+// Error should be used for errors involving queries ran against the database
+type Error struct {
+	// Optional: the line number
+	Line uint
+
+	// Query is a query excerpt
+	Query []byte
+
+	// Err is a useful/helping error message for humans
+	Err string
+
+	// OrigErr is the underlying error
+	OrigErr error
+}
+
+func (e Error) Error() string {
+	if len(e.Err) == 0 {
+		return fmt.Sprintf("%v in line %v: %s", e.OrigErr, e.Line, e.Query)
+	}
+	return fmt.Sprintf("%v in line %v: %s (details: %v)", e.Err, e.Line, e.Query, e.OrigErr)
 }

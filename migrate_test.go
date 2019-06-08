@@ -2,12 +2,15 @@ package migrate_test
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/godoc/vfs/httpfs"
 
 	"github.com/apex/log"
+	"github.com/apex/log/handlers/discard"
 	"github.com/matthewmueller/migrate"
 	"github.com/tj/assert"
 	"golang.org/x/tools/godoc/vfs/mapfs"
@@ -15,25 +18,48 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var url = "postgres://localhost:5432/migrate-test?sslmode=disable"
-var tableName = "migrate"
+const tableName = "migrate"
 
-func connect(t testing.TB) (*sql.DB, func()) {
-	db, err := sql.Open("postgres", url)
+var logger = func() log.Interface {
+	return &log.Logger{
+		Handler: discard.New(),
+		Level:   log.InfoLevel,
+	}
+}()
+
+func TestPostgres(t *testing.T) {
+	url := "postgres://localhost:5432/migrate-test?sslmode=disable"
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.fn(t, url)
+		})
+	}
+}
+
+func TestSQLite(t *testing.T) {
+	url := "sqlite:///tmp.db"
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.fn(t, url)
+		})
+	}
+}
+
+func connect(t testing.TB, url string) (*sql.DB, func()) {
+	db, err := migrate.Connect(url)
 	assert.NoError(t, err)
 	return db, func() {
 		assert.NoError(t, db.Close())
 	}
 }
 
-func drop(t testing.TB) {
-	db, close := connect(t)
+func drop(t testing.TB, url string) {
+	db, close := connect(t, url)
 	defer close()
 	_, err := db.Query(`
 		drop table if exists migrate;
 		drop table if exists users;
 		drop table if exists teams;
-		drop extension if exists citext;
 	`)
 	assert.NoError(t, err)
 }
@@ -43,433 +69,434 @@ func exists(t testing.TB, path string) {
 	assert.NoError(t, err)
 }
 
-func TestZero(t *testing.T) {
-	drop(t)
-
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"000_init.up.sql": `
-			create extension if not exists citext;
-
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null,
-
-				created_at time with time zone not null,
-				updated_at time with time zone not null
-			);
-		`,
-		"000_init.down.sql": `
-			drop table if exists users;
-			drop table if exists teams;
-			drop extension if exists citext;
-		`,
-	}))
-
-	db, close := connect(t)
-	defer close()
-
-	err := migrate.Up(log, db, fs, tableName)
-	assert.Equal(t, migrate.ErrZerothMigration, err)
+func notExists(err error, name string) bool {
+	return strings.Contains(err.Error(), fmt.Sprintf("relation \"%s\" does not exist", name)) ||
+		strings.Contains(err.Error(), fmt.Sprintf("no such table: %s", name))
 }
 
-func TestUpDown(t *testing.T) {
-	drop(t)
-
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
-
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null,
-
-				created_at time with time zone not null,
-				updated_at time with time zone not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists users;
-			drop table if exists teams;
-			drop extension if exists citext;
-		`,
-	}))
-
-	db, close := connect(t)
-	defer close()
-
-	err := migrate.Up(log, db, fs, tableName)
-	assert.NoError(t, err)
-
-	rows, err := db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	for rows.Next() {
-		var id int
-		var name string
-		err := rows.Scan(&id, &name)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, id)
-		assert.Equal(t, "jack", name)
-	}
-	assert.NoError(t, rows.Err())
-
-	err = migrate.Down(log, db, fs, tableName)
-	assert.NoError(t, err)
-
-	rows, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.Contains(t, err.Error(), "teams")
-	assert.Contains(t, err.Error(), "does not exist")
+func syntaxError(err error, name string) bool {
+	return strings.Contains(err.Error(), fmt.Sprintf(`syntax error at or near "%s"`, name)) ||
+		strings.Contains(err.Error(), fmt.Sprintf(`near "%s": syntax error`, name))
 }
 
-func TestUpUpDownDown(t *testing.T) {
-	drop(t)
+var tests = []struct {
+	name string
+	fn   func(t testing.TB, url string)
+}{
+	{
+		name: "zero",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"000_init.up.sql": `
+					create table if not exists teams (
+						id serial primary key not null,
+						name text not null
+					);
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null,
+						created_at time with time zone not null,
+						updated_at time with time zone not null
+					);
+				`,
+				"000_init.down.sql": `
+					drop table if exists users;
+					drop table if exists teams;
+				`,
+			}))
+			db, close := connect(t, url)
+			defer close()
+			err := migrate.Up(logger, db, fs, tableName)
+			assert.Equal(t, migrate.ErrZerothMigration, err)
+		},
+	},
+	{
+		name: "up down",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+					create table if not exists teams (
+						id serial primary key not null,
+						name text not null
+					);
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null,
+						created_at time with time zone not null,
+						updated_at time with time zone not null
+					);
+				`,
+				"001_init.down.sql": `
+					drop table if exists users;
+					drop table if exists teams;
+				`,
+			}))
 
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension if exists citext;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
+			db, close := connect(t, url)
+			defer close()
 
-	db, close := connect(t)
-	defer close()
+			err := migrate.Up(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-	err := migrate.Up(log, db, fs, tableName)
-	assert.NoError(t, err)
-	err = migrate.Up(log, db, fs, tableName)
-	assert.NoError(t, err)
+			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack')`)
+			assert.NoError(t, err)
+			for rows.Next() {
+				var id int
+				var name string
+				err := rows.Scan(&id, &name)
+				assert.NoError(t, err)
+				assert.Equal(t, 1, id)
+				assert.Equal(t, "jack", name)
+			}
+			assert.NoError(t, rows.Err())
 
-	rows, err := db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.NoError(t, err)
-	for rows.Next() {
-		var id int
-		var email string
-		err := rows.Scan(&id, &email)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, id)
-		assert.Equal(t, "jack", email)
-	}
-	assert.NoError(t, rows.Err())
+			err = migrate.Down(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-	err = migrate.Down(log, db, fs, tableName)
-	assert.NoError(t, err)
-	err = migrate.Down(log, db, fs, tableName)
-	assert.NoError(t, err)
+			rows, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			assert.Contains(t, err.Error(), "teams")
+			assert.True(t, notExists(err, "teams"), err.Error())
+		},
+	},
+	{
+		name: "upupdowndown",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	rows, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
-}
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+					create table if not exists teams (
+						id serial primary key not null,
+						name text not null
+					);
+				`,
+				"001_init.down.sql": `
+					drop table if exists teams;
+				`,
+				"002_users.up.sql": `
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null
+					);
+				`,
+				"002_users.down.sql": `
+					drop table if exists users;
+				`,
+			}))
 
-func TestUpByDownBy(t *testing.T) {
-	drop(t)
+			db, close := connect(t, url)
+			defer close()
 
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
+			err := migrate.Up(logger, db, fs, tableName)
+			assert.NoError(t, err)
+			err = migrate.Up(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension if exists citext;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack')`)
+			assert.NoError(t, err)
+			for rows.Next() {
+				var id int
+				var email string
+				err := rows.Scan(&id, &email)
+				assert.NoError(t, err)
+				assert.Equal(t, 1, id)
+				assert.Equal(t, "jack", email)
+			}
+			assert.NoError(t, rows.Err())
 
-	db, close := connect(t)
-	defer close()
+			err = migrate.Down(logger, db, fs, tableName)
+			assert.NoError(t, err)
+			err = migrate.Down(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-	err := migrate.UpBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
+			rows, err = db.Query(`insert into users (id, email) values (2, 'jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
+		},
+	},
+	{
+		name: "upbydownby",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`,
+				"001_init.down.sql": `
+						drop table if exists teams;
+					`,
+				"002_users.up.sql": `
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`,
+				"002_users.down.sql": `
+						drop table if exists users;
+					`,
+			}))
 
-	err = migrate.UpBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.NoError(t, err)
+			db, close := connect(t, url)
+			defer close()
 
-	err = migrate.UpBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.NoError(t, err)
+			err := migrate.UpBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
 
-	err = migrate.DownBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
 
-	err = migrate.DownBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.Contains(t, err.Error(), "teams")
-	assert.Contains(t, err.Error(), "does not exist")
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
+			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NoError(t, err)
 
-	err = migrate.DownBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.Contains(t, err.Error(), "teams")
-	assert.Contains(t, err.Error(), "does not exist")
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
-}
+			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NoError(t, err)
 
-func TestUpRollback(t *testing.T) {
-	drop(t)
+			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
 
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
+			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.Contains(t, err.Error(), "teams")
+			assert.True(t, notExists(err, "teams"), err.Error())
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
 
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension if exists citext;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
+			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.Contains(t, err.Error(), "teams")
+			assert.True(t, notExists(err, "teams"), err.Error())
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
+		},
+	},
+	{
+		name: "uprollback",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	db, close := connect(t)
-	defer close()
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`,
+				"001_init.down.sql": `
+						drop table if exists teams;
+					`,
+				"002_users.up.sql": `
+						create table if not exists users (
+							id serial primary key not null -- intentionally missing comma
+							email text not null
+						);
+					`,
+				"002_users.down.sql": `
+						drop table if exists users;
+					`,
+			}))
 
-	err := migrate.UpBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
+			db, close := connect(t, url)
+			defer close()
 
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
+			err := migrate.UpBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
 
-	err = migrate.UpBy(log, db, fs, tableName, 1)
-	assert.Equal(t, `002_users.up.sql failed. syntax error at or near "email" on column 2 in line 3:  (details: pq: syntax error at or near "email")`, err.Error())
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
-}
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
 
-func TestDownRollback(t *testing.T) {
-	drop(t)
+			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			assert.NotNil(t, err)
+			assert.True(t, syntaxError(err, "email"), err.Error())
 
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"), err.Error())
+		},
+	},
+	{
+		name: "downrollback",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension citex;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`,
+				"001_init.down.sql": `
+						drop table if exis teams; -- intentional syntax error
+					`,
+				"002_users.up.sql": `
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`,
+				"002_users.down.sql": `
+						drop table if exists users;
+					`,
+			}))
 
-	db, close := connect(t)
-	defer close()
+			db, close := connect(t, url)
+			defer close()
 
-	// setup
-	err := migrate.Up(log, db, fs, tableName)
-	assert.NoError(t, err)
+			// setup
+			err := migrate.Up(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-	err = migrate.DownBy(log, db, fs, tableName, 1)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-	_, err = db.Query(`insert into users (email) values ('jack') returning id, email`)
-	assert.Contains(t, err.Error(), "users")
-	assert.Contains(t, err.Error(), "does not exist")
+			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.Contains(t, err.Error(), "users")
+			assert.True(t, notExists(err, "users"))
 
-	err = migrate.DownBy(log, db, fs, tableName, 1)
-	assert.Equal(t, `001_init.down.sql failed. extension "citex" does not exist in line 0:  (details: pq: extension "citex" does not exist)`, err.Error())
+			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			assert.NotNil(t, err)
+			assert.True(t, syntaxError(err, "exis"), err.Error())
 
-	_, err = db.Query(`insert into teams (name) values ('jack') returning id, name`)
-	assert.NoError(t, err)
-}
+			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			assert.NoError(t, err)
+		},
+	},
+	{
+		name: "new",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-func TestNew(t *testing.T) {
-	log := log.Log
+			// cleanup
+			assert.NoError(t, os.RemoveAll("migrate"))
 
-	// cleanup
-	assert.NoError(t, os.RemoveAll("migrate"))
+			err := migrate.New(logger, "migrate", "setup")
+			assert.NoError(t, err)
+			exists(t, "migrate/001_setup.up.sql")
+			exists(t, "migrate/001_setup.down.sql")
 
-	err := migrate.New(log, "migrate", "setup")
-	assert.NoError(t, err)
-	exists(t, "migrate/001_setup.up.sql")
-	exists(t, "migrate/001_setup.down.sql")
+			err = migrate.New(logger, "migrate", "create teams")
+			assert.NoError(t, err)
+			exists(t, "migrate/002_create_teams.up.sql")
+			exists(t, "migrate/002_create_teams.down.sql")
 
-	err = migrate.New(log, "migrate", "create teams")
-	assert.NoError(t, err)
-	exists(t, "migrate/002_create_teams.up.sql")
-	exists(t, "migrate/002_create_teams.down.sql")
+			err = migrate.New(logger, "migrate", "new-users")
+			assert.NoError(t, err)
+			exists(t, "migrate/003_new_users.up.sql")
+			exists(t, "migrate/003_new_users.down.sql")
 
-	err = migrate.New(log, "migrate", "new-users")
-	assert.NoError(t, err)
-	exists(t, "migrate/003_new_users.up.sql")
-	exists(t, "migrate/003_new_users.down.sql")
+			if !t.Failed() {
+				assert.NoError(t, os.RemoveAll("migrate"))
+			}
+		},
+	},
+	{
+		name: "remoteversion",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	if !t.Failed() {
-		assert.NoError(t, os.RemoveAll("migrate"))
-	}
-}
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`,
+				"001_init.down.sql": `
+						drop table if exists teams;
+					`,
+				"002_users.up.sql": `
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`,
+				"002_users.down.sql": `
+						drop table if exists users;
+					`,
+			}))
 
-func TestRemoteVersion(t *testing.T) {
-	drop(t)
+			db, close := connect(t, url)
+			defer close()
 
-	log := log.Log
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
+			// setup
+			err := migrate.Up(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension citext;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
+			name, err := migrate.RemoteVersion(db, fs, tableName)
+			assert.NoError(t, err)
+			assert.Equal(t, `002_users.up.sql`, name)
 
-	db, close := connect(t)
-	defer close()
+			// teardown
+			err = migrate.Down(logger, db, fs, tableName)
+			assert.NoError(t, err)
 
-	// setup
-	err := migrate.Up(log, db, fs, tableName)
-	assert.NoError(t, err)
+			name, err = migrate.RemoteVersion(db, fs, tableName)
+			assert.Equal(t, migrate.ErrNoMigrations, err)
+		},
+	},
+	{
+		name: "localversion",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
 
-	name, err := migrate.RemoteVersion(db, fs, tableName)
-	assert.NoError(t, err)
-	assert.Equal(t, `002_users.up.sql`, name)
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`,
+				"001_init.down.sql": `
+						drop table if exists teams;
+					`,
+				"002_users.up.sql": `
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`,
+				"002_users.down.sql": `
+						drop table if exists users;
+					`,
+			}))
 
-	// teardown
-	err = migrate.Down(log, db, fs, tableName)
-	assert.NoError(t, err)
-
-	name, err = migrate.RemoteVersion(db, fs, tableName)
-	assert.Equal(t, migrate.ErrNoMigrations, err)
-}
-
-func TestLocalVersion(t *testing.T) {
-	fs := httpfs.New(mapfs.New(map[string]string{
-		"001_init.up.sql": `
-			create extension if not exists citext;
-
-			create table if not exists teams (
-				id serial primary key not null,
-				name citext not null
-			);
-		`,
-		"001_init.down.sql": `
-			drop table if exists teams;
-			drop extension citext;
-		`,
-		"002_users.up.sql": `
-			create table if not exists users (
-				id serial primary key not null,
-				email citext not null
-			);
-		`,
-		"002_users.down.sql": `
-			drop table if exists users;
-		`,
-	}))
-
-	name, err := migrate.LocalVersion(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, `002_users.up.sql`, name)
+			name, err := migrate.LocalVersion(fs)
+			assert.NoError(t, err)
+			assert.Equal(t, `002_users.up.sql`, name)
+		},
+	},
 }

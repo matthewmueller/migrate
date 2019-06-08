@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +12,8 @@ import (
 	"github.com/matthewmueller/commander"
 	"github.com/matthewmueller/migrate"
 	prompt "github.com/tj/go-prompt"
+
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -22,9 +22,7 @@ func main() {
 		Level:   log.InfoLevel,
 	}
 
-	todo := context.TODO()
-
-	cli := commander.New("migrate", "Postgres migration CLI")
+	cli := commander.New("migrate", "No frills database migration CLI for Postgres & SQLite")
 	dir := cli.Flag("dir", "migrations directory").Default("./migrate").String()
 	table := cli.Flag("table", "table name").Default("migrate").String()
 
@@ -50,7 +48,7 @@ func main() {
 		db := up.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := up.Arg("n", "go up by n").Int()
 		up.Run(func() error {
-			db, err := connect(todo, *db)
+			db, err := migrate.Connect(*db)
 			if err != nil {
 				return err
 			}
@@ -72,7 +70,7 @@ func main() {
 		db := down.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := down.Arg("n", "go up by n").Int()
 		down.Run(func() error {
-			db, err := connect(todo, *db)
+			db, err := migrate.Connect(*db)
 			if err != nil {
 				return err
 			}
@@ -93,7 +91,7 @@ func main() {
 		info := cli.Command("info", "info on the current migration")
 		db := info.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		info.Run(func() error {
-			db, err := connect(todo, *db)
+			db, err := migrate.Connect(*db)
 			if err != nil {
 				return err
 			}
@@ -126,15 +124,4 @@ func main() {
 	if err := cli.Parse(os.Args[1:]); err != nil {
 		log.Fatal(err.Error())
 	}
-}
-
-func connect(ctx context.Context, url string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", url)
-	if err != nil {
-		return nil, err
-	}
-	if err := db.PingContext(ctx); err != nil {
-		return nil, err
-	}
-	return db, nil
 }
