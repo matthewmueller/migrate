@@ -42,15 +42,6 @@ var ErrNoMigrations = errors.New("no migrations")
 // ErrNotEnoughMigrations happens when your migrations folder has less migrations than remote's version
 var ErrNotEnoughMigrations = errors.New("remote migration version greater than the number of migrations you have")
 
-// Direction string
-type Direction string
-
-// Directions
-const (
-	up   Direction = "up"
-	down Direction = "down"
-)
-
 // WritableFS is a read-write filesystem
 type writeableFS interface {
 	http.FileSystem
@@ -100,7 +91,7 @@ func New(log log.Interface, dir string, name string) error {
 	if err != nil {
 		return err
 	}
-	migrations, err := toMigrations(files, up)
+	migrations, err := upMigrations(files)
 	if err != nil {
 		return err
 	}
@@ -133,46 +124,13 @@ type Migration struct {
 	Version uint
 }
 
-// migrations takes a file map and turns it into a sorted list of migrations
-func toMigrations(files map[string]string, d Direction) (migs []*Migration, err error) {
-	for path, code := range files {
-		if !reFile.MatchString(path) {
-			continue
-		}
-		n, err := getVersion(path)
-		if err != nil {
-			return nil, err
-		}
-		if n == 0 {
-			return nil, ErrZerothMigration
-		}
-		dir, err := getDirection(path)
-		if err != nil {
-			return nil, err
-		}
-		if dir != d {
-			continue
-		}
-		migs = append(migs, &Migration{
-			Name:    path,
-			Dir:     dir,
-			Code:    code,
-			Version: n,
-		})
-	}
-	sort.Slice(migs, func(i, j int) bool {
-		return migs[i].Version < migs[j].Version
-	})
-	return migs, nil
-}
-
 // LocalVersion fetches the latest local version
 func LocalVersion(fs http.FileSystem) (name string, err error) {
 	files, err := getFiles(fs)
 	if err != nil {
 		return name, err
 	}
-	migrations, err := toMigrations(files, up)
+	migrations, err := upMigrations(files)
 	if err != nil {
 		return name, err
 	} else if len(migrations) == 0 {
@@ -197,7 +155,7 @@ func RemoteVersion(db *sql.DB, fs http.FileSystem, tableName string) (name strin
 	if err != nil {
 		return name, err
 	}
-	migrations, err := toMigrations(files, up)
+	migrations, err := upMigrations(files)
 	if err != nil {
 		return name, err
 	} else if len(migrations) == 0 {
@@ -218,9 +176,15 @@ func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i
 	if err != nil {
 		return err
 	}
-	migrations, err := toMigrations(files, up)
+	if len(files) == 0 {
+		return ErrNoMigrations
+	}
+	migrations, err := upMigrations(files)
 	if err != nil {
 		return err
+	}
+	if len(migrations) == 0 {
+		return ErrNoMigrations
 	}
 	if err := ensureTableExists(db, tableName); err != nil {
 		return err
@@ -273,9 +237,15 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 	if err != nil {
 		return err
 	}
-	migrations, err := toMigrations(files, down)
+	if len(files) == 0 {
+		return ErrNoMigrations
+	}
+	migrations, err := downMigrations(files)
 	if err != nil {
 		return err
+	}
+	if len(migrations) == 0 {
+		return ErrNoMigrations
 	}
 	if err := ensureTableExists(db, tableName); err != nil {
 		return err
@@ -293,13 +263,13 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 		return err
 	}
 	defer tx.Rollback()
-
 	// next remote
 	for i > 0 && remote >= local {
 		if len(migrations) < int(remote) {
 			return ErrNotEnoughMigrations
 		}
 		migration := migrations[remote-1]
+		fmt.Println(migration)
 
 		// execute the migration code
 		if _, err := tx.Exec(migration.Code); err != nil {
@@ -324,7 +294,7 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 
 func exists(fs http.FileSystem, path string) error {
 	if _, err := fs.Open(sep); os.IsNotExist(err) {
-		return os.ErrNotExist
+		return ErrNoMigrations
 	} else if err != nil {
 		return err
 	}
@@ -548,4 +518,54 @@ func (e Error) Error() string {
 		return fmt.Sprintf("%v in line %v: %s", e.OrigErr, e.Line, e.Query)
 	}
 	return fmt.Sprintf("%v in line %v: %s (details: %v)", e.Err, e.Line, e.Query, e.OrigErr)
+}
+
+// Direction string
+type Direction string
+
+// Directions
+const (
+	up   Direction = "up"
+	down Direction = "down"
+)
+
+func upMigrations(files map[string]string) (migs []*Migration, err error) {
+	return toMigrations(files, up)
+}
+
+func downMigrations(files map[string]string) (migs []*Migration, err error) {
+	return toMigrations(files, down)
+}
+
+// migrations takes a file map and turns it into a sorted list of migrations
+func toMigrations(files map[string]string, d Direction) (migs []*Migration, err error) {
+	for path, code := range files {
+		if !reFile.MatchString(path) {
+			continue
+		}
+		n, err := getVersion(path)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return nil, ErrZerothMigration
+		}
+		dir, err := getDirection(path)
+		if err != nil {
+			return nil, err
+		}
+		if dir != d {
+			continue
+		}
+		migs = append(migs, &Migration{
+			Name:    path,
+			Dir:     dir,
+			Code:    code,
+			Version: n,
+		})
+	}
+	sort.Slice(migs, func(i, j int) bool {
+		return migs[i].Version < migs[j].Version
+	})
+	return migs, nil
 }

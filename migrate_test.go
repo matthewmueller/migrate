@@ -20,7 +20,7 @@ import (
 
 const tableName = "migrate"
 
-var logger = func() log.Interface {
+var l = func() log.Interface {
 	return &log.Logger{
 		Handler: discard.New(),
 		Level:   log.InfoLevel,
@@ -84,7 +84,57 @@ var tests = []struct {
 	fn   func(t testing.TB, url string)
 }{
 	{
-		name: "zero",
+		name: "no migrations",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			fs := httpfs.New(mapfs.New(map[string]string{}))
+			db, close := connect(t, url)
+			defer close()
+			err := migrate.Up(l, db, fs, tableName)
+			assert.Equal(t, migrate.ErrNoMigrations, err)
+		},
+	},
+	{
+		name: "no matching migrations",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"migrate/001_init.up.sql":   ``,
+				"migrate/001_init.down.sql": ``,
+			}))
+			db, close := connect(t, url)
+			defer close()
+			err := migrate.Up(l, db, fs, tableName)
+			assert.Equal(t, migrate.ErrNoMigrations, err)
+		},
+	},
+	{
+		name: "no migrations down",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			fs := httpfs.New(mapfs.New(map[string]string{}))
+			db, close := connect(t, url)
+			defer close()
+			err := migrate.Down(l, db, fs, tableName)
+			assert.Equal(t, migrate.ErrNoMigrations, err)
+		},
+	},
+	{
+		name: "no matching migrations down",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"migrate/001_init.up.sql":   ``,
+				"migrate/001_init.down.sql": ``,
+			}))
+			db, close := connect(t, url)
+			defer close()
+			err := migrate.Down(l, db, fs, tableName)
+			assert.Equal(t, migrate.ErrNoMigrations, err)
+		},
+	},
+	{
+		name: "zeroth",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 			fs := httpfs.New(mapfs.New(map[string]string{
@@ -107,7 +157,7 @@ var tests = []struct {
 			}))
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Up(logger, db, fs, tableName)
+			err := migrate.Up(l, db, fs, tableName)
 			assert.Equal(t, migrate.ErrZerothMigration, err)
 		},
 	},
@@ -138,7 +188,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.Up(logger, db, fs, tableName)
+			err := migrate.Up(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack')`)
@@ -153,10 +203,11 @@ var tests = []struct {
 			}
 			assert.NoError(t, rows.Err())
 
-			err = migrate.Down(logger, db, fs, tableName)
+			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			rows, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "teams")
 			assert.True(t, notExists(err, "teams"), err.Error())
 		},
@@ -190,9 +241,9 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.Up(logger, db, fs, tableName)
+			err := migrate.Up(l, db, fs, tableName)
 			assert.NoError(t, err)
-			err = migrate.Up(logger, db, fs, tableName)
+			err = migrate.Up(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			rows, err := db.Query(`insert into users (id, email) values (1, 'jack')`)
@@ -207,12 +258,13 @@ var tests = []struct {
 			}
 			assert.NoError(t, rows.Err())
 
-			err = migrate.Down(logger, db, fs, tableName)
+			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
-			err = migrate.Down(logger, db, fs, tableName)
+			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			rows, err = db.Query(`insert into users (id, email) values (2, 'jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
 		},
@@ -246,23 +298,24 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.UpBy(logger, db, fs, tableName, 1)
+			err := migrate.UpBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
 
-			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			err = migrate.UpBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into users (email) values ('jack')`)
 			assert.NoError(t, err)
 
-			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			err = migrate.UpBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
@@ -270,15 +323,16 @@ var tests = []struct {
 			_, err = db.Query(`insert into users (email) values ('jack')`)
 			assert.NoError(t, err)
 
-			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			err = migrate.DownBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
 
-			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			err = migrate.DownBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.Contains(t, err.Error(), "teams")
@@ -287,7 +341,7 @@ var tests = []struct {
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
 
-			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			err = migrate.DownBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.Contains(t, err.Error(), "teams")
@@ -326,16 +380,17 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.UpBy(logger, db, fs, tableName, 1)
+			err := migrate.UpBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
 
-			err = migrate.UpBy(logger, db, fs, tableName, 1)
+			err = migrate.UpBy(l, db, fs, tableName, 1)
 			assert.NotNil(t, err)
 			assert.True(t, syntaxError(err, "email"), err.Error())
 
@@ -376,18 +431,19 @@ var tests = []struct {
 			defer close()
 
 			// setup
-			err := migrate.Up(logger, db, fs, tableName)
+			err := migrate.Up(l, db, fs, tableName)
 			assert.NoError(t, err)
 
-			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			err = migrate.DownBy(l, db, fs, tableName, 1)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into teams (name) values ('jack')`)
 			assert.NoError(t, err)
 			_, err = db.Query(`insert into users (email) values ('jack')`)
+			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"))
 
-			err = migrate.DownBy(logger, db, fs, tableName, 1)
+			err = migrate.DownBy(l, db, fs, tableName, 1)
 			assert.NotNil(t, err)
 			assert.True(t, syntaxError(err, "exis"), err.Error())
 
@@ -403,17 +459,17 @@ var tests = []struct {
 			// cleanup
 			assert.NoError(t, os.RemoveAll("migrate"))
 
-			err := migrate.New(logger, "migrate", "setup")
+			err := migrate.New(l, "migrate", "setup")
 			assert.NoError(t, err)
 			exists(t, "migrate/001_setup.up.sql")
 			exists(t, "migrate/001_setup.down.sql")
 
-			err = migrate.New(logger, "migrate", "create teams")
+			err = migrate.New(l, "migrate", "create teams")
 			assert.NoError(t, err)
 			exists(t, "migrate/002_create_teams.up.sql")
 			exists(t, "migrate/002_create_teams.down.sql")
 
-			err = migrate.New(logger, "migrate", "new-users")
+			err = migrate.New(l, "migrate", "new-users")
 			assert.NoError(t, err)
 			exists(t, "migrate/003_new_users.up.sql")
 			exists(t, "migrate/003_new_users.down.sql")
@@ -453,7 +509,7 @@ var tests = []struct {
 			defer close()
 
 			// setup
-			err := migrate.Up(logger, db, fs, tableName)
+			err := migrate.Up(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			name, err := migrate.RemoteVersion(db, fs, tableName)
@@ -461,7 +517,7 @@ var tests = []struct {
 			assert.Equal(t, `002_users.up.sql`, name)
 
 			// teardown
-			err = migrate.Down(logger, db, fs, tableName)
+			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
 			name, err = migrate.RemoteVersion(db, fs, tableName)
