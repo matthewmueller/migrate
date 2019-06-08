@@ -419,14 +419,6 @@ func getDirection(filename string) (Direction, error) {
 
 // ensure the table exists
 func ensureTableExists(db *sql.DB, tableName string) error {
-	// r := db.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = (SELECT current_schema());", tableName)
-	// c := 0
-	// if err := r.Scan(&c); err != nil {
-	// 	return err
-	// }
-	// if c > 0 {
-	// 	return nil
-	// }
 	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
