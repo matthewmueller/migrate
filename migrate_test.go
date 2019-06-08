@@ -40,6 +40,7 @@ func TestSQLite(t *testing.T) {
 	url := "sqlite:///tmp.db"
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			assert.NoError(t, os.RemoveAll("./tmp.db"))
 			test.fn(t, url)
 		})
 	}
