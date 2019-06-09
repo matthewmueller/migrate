@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/apex/log"
+	"github.com/apex/log/handlers/discard"
 	"github.com/lib/pq"
 	text "github.com/matthewmueller/go-text"
 	"github.com/matthewmueller/migrate/internal/dedent"
@@ -24,8 +26,6 @@ import (
 
 	// sqlite db
 	_ "github.com/mattn/go-sqlite3"
-
-	"github.com/apex/log"
 )
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
@@ -84,6 +84,7 @@ func Connect(conn string) (db *sql.DB, err error) {
 // New creates a new migrations in dir
 // TODO: figure out a writable virtual file-system for this
 func New(log log.Interface, dir string, name string) error {
+	log = logger(log)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -167,11 +168,13 @@ func RemoteVersion(db *sql.DB, fs http.FileSystem, tableName string) (name strin
 
 // Up migrates the database up to the latest migration
 func Up(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+	log = logger(log)
 	return UpBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // UpBy migrations the database up by i
 func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
 		return err
@@ -228,11 +231,13 @@ func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i
 
 // Down migrates the database down to 0
 func Down(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+	log = logger(log)
 	return DownBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // DownBy migrations the database down by i
 func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
 		return err
@@ -568,4 +573,14 @@ func toMigrations(files map[string]string, d Direction) (migs []*Migration, err 
 		return migs[i].Version < migs[j].Version
 	})
 	return migs, nil
+}
+
+func logger(l log.Interface) log.Interface {
+	if l == nil {
+		return &log.Logger{
+			Level:   log.InfoLevel,
+			Handler: discard.New(),
+		}
+	}
+	return l
 }

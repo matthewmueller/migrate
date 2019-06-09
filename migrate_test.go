@@ -214,6 +214,57 @@ var tests = []struct {
 		},
 	},
 	{
+		name: "up down no logger",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+
+			fs := httpfs.New(mapfs.New(map[string]string{
+				"001_init.up.sql": `
+					create table if not exists teams (
+						id serial primary key not null,
+						name text not null
+					);
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null,
+						created_at time with time zone not null,
+						updated_at time with time zone not null
+					);
+				`,
+				"001_init.down.sql": `
+					drop table if exists users;
+					drop table if exists teams;
+				`,
+			}))
+
+			db, close := connect(t, url)
+			defer close()
+
+			err := migrate.Up(nil, db, fs, tableName)
+			assert.NoError(t, err)
+
+			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack')`)
+			assert.NoError(t, err)
+			for rows.Next() {
+				var id int
+				var name string
+				err := rows.Scan(&id, &name)
+				assert.NoError(t, err)
+				assert.Equal(t, 1, id)
+				assert.Equal(t, "jack", name)
+			}
+			assert.NoError(t, rows.Err())
+
+			err = migrate.Down(nil, db, fs, tableName)
+			assert.NoError(t, err)
+
+			rows, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			assert.NotNil(t, err)
+			assert.Contains(t, err.Error(), "teams")
+			assert.True(t, notExists(err, "teams"), err.Error())
+		},
+	},
+	{
 		name: "upupdowndown",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
