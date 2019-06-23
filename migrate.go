@@ -274,7 +274,6 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 			return ErrNotEnoughMigrations
 		}
 		migration := migrations[remote-1]
-		fmt.Println(migration)
 
 		// execute the migration code
 		if _, err := tx.Exec(migration.Code); err != nil {
