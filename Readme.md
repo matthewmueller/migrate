@@ -2,7 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/matthewmueller/migrate?status.svg)](https://godoc.org/github.com/matthewmueller/migrate)
 
-No-frills migration utility for PostgreSQL.
+No-frills migration utility for PostgreSQL and SQLite.
 
 ## Features
 
