@@ -20,8 +20,8 @@ import (
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
 	"github.com/lib/pq"
-	text "github.com/matthewmueller/go-text"
 	"github.com/matthewmueller/migrate/internal/dedent"
+	"github.com/matthewmueller/text"
 	"github.com/shurcooL/httpfs/vfsutil"
 
 	// sqlite db
@@ -41,12 +41,6 @@ var ErrNoMigrations = errors.New("no migrations")
 
 // ErrNotEnoughMigrations happens when your migrations folder has less migrations than remote's version
 var ErrNotEnoughMigrations = errors.New("remote migration version greater than the number of migrations you have")
-
-// WritableFS is a read-write filesystem
-type writeableFS interface {
-	http.FileSystem
-	OpenFile(name string, flag int, perm os.FileMode) (File, error)
-}
 
 // File is a writable file
 type File interface {

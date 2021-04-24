@@ -207,7 +207,7 @@ var tests = []struct {
 			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
-			rows, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			_, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
 			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "teams")
 			assert.True(t, notExists(err, "teams"), err.Error())
@@ -258,7 +258,7 @@ var tests = []struct {
 			err = migrate.Down(nil, db, fs, tableName)
 			assert.NoError(t, err)
 
-			rows, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			_, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
 			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "teams")
 			assert.True(t, notExists(err, "teams"), err.Error())
@@ -315,7 +315,7 @@ var tests = []struct {
 			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
-			rows, err = db.Query(`insert into users (id, email) values (2, 'jack')`)
+			_, err = db.Query(`insert into users (id, email) values (2, 'jack')`)
 			assert.NotNil(t, err)
 			assert.Contains(t, err.Error(), "users")
 			assert.True(t, notExists(err, "users"), err.Error())
@@ -572,7 +572,7 @@ var tests = []struct {
 			err = migrate.Down(l, db, fs, tableName)
 			assert.NoError(t, err)
 
-			name, err = migrate.RemoteVersion(db, fs, tableName)
+			_, err = migrate.RemoteVersion(db, fs, tableName)
 			assert.Equal(t, migrate.ErrNoMigrations, err)
 		},
 	},
