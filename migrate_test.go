@@ -6,14 +6,12 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"golang.org/x/tools/godoc/vfs/httpfs"
+	"testing/fstest"
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
 	"github.com/matthewmueller/migrate"
 	"github.com/tj/assert"
-	"golang.org/x/tools/godoc/vfs/mapfs"
 
 	_ "github.com/lib/pq"
 )
@@ -88,7 +86,7 @@ var tests = []struct {
 		name: "no migrations",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
-			fs := httpfs.New(mapfs.New(map[string]string{}))
+			fs := fstest.MapFS{}
 			db, close := connect(t, url)
 			defer close()
 			err := migrate.Up(l, db, fs, tableName)
@@ -99,10 +97,10 @@ var tests = []struct {
 		name: "no matching migrations",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"migrate/001_init.up.sql":   ``,
-				"migrate/001_init.down.sql": ``,
-			}))
+			fs := fstest.MapFS{
+				"migrate/001_init.up.sql":   {Data: []byte(``)},
+				"migrate/001_init.down.sql": {Data: []byte(``)},
+			}
 			db, close := connect(t, url)
 			defer close()
 			err := migrate.Up(l, db, fs, tableName)
@@ -113,7 +111,7 @@ var tests = []struct {
 		name: "no migrations down",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
-			fs := httpfs.New(mapfs.New(map[string]string{}))
+			fs := fstest.MapFS{}
 			db, close := connect(t, url)
 			defer close()
 			err := migrate.Down(l, db, fs, tableName)
@@ -124,10 +122,10 @@ var tests = []struct {
 		name: "no matching migrations down",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"migrate/001_init.up.sql":   ``,
-				"migrate/001_init.down.sql": ``,
-			}))
+			fs := fstest.MapFS{
+				"migrate/001_init.up.sql":   {Data: []byte(``)},
+				"migrate/001_init.down.sql": {Data: []byte(``)},
+			}
 			db, close := connect(t, url)
 			defer close()
 			err := migrate.Down(l, db, fs, tableName)
@@ -138,24 +136,28 @@ var tests = []struct {
 		name: "zeroth",
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"000_init.up.sql": `
-					create table if not exists teams (
-						id serial primary key not null,
-						name text not null
-					);
-					create table if not exists users (
-						id serial primary key not null,
-						email text not null,
-						created_at time with time zone not null,
-						updated_at time with time zone not null
-					);
-				`,
-				"000_init.down.sql": `
-					drop table if exists users;
-					drop table if exists teams;
-				`,
-			}))
+			fs := fstest.MapFS{
+				"000_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null,
+							created_at time with time zone not null,
+							updated_at time with time zone not null
+						);
+					`),
+				},
+				"000_init.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+						drop table if exists teams;
+					`),
+				},
+			}
 			db, close := connect(t, url)
 			defer close()
 			err := migrate.Up(l, db, fs, tableName)
@@ -167,24 +169,28 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
-					create table if not exists teams (
-						id serial primary key not null,
-						name text not null
-					);
-					create table if not exists users (
-						id serial primary key not null,
-						email text not null,
-						created_at time with time zone not null,
-						updated_at time with time zone not null
-					);
-				`,
-				"001_init.down.sql": `
-					drop table if exists users;
-					drop table if exists teams;
-				`,
-			}))
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null,
+							created_at time with time zone not null,
+							updated_at time with time zone not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+						drop table if exists teams;
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -218,24 +224,28 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
-					create table if not exists teams (
-						id serial primary key not null,
-						name text not null
-					);
-					create table if not exists users (
-						id serial primary key not null,
-						email text not null,
-						created_at time with time zone not null,
-						updated_at time with time zone not null
-					);
-				`,
-				"001_init.down.sql": `
-					drop table if exists users;
-					drop table if exists teams;
-				`,
-			}))
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null,
+							created_at time with time zone not null,
+							updated_at time with time zone not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+						drop table if exists teams;
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -269,26 +279,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
-					create table if not exists teams (
-						id serial primary key not null,
-						name text not null
-					);
-				`,
-				"001_init.down.sql": `
-					drop table if exists teams;
-				`,
-				"002_users.up.sql": `
-					create table if not exists users (
-						id serial primary key not null,
-						email text not null
-					);
-				`,
-				"002_users.down.sql": `
-					drop table if exists users;
-				`,
-			}))
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists teams;
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -326,26 +344,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
 						create table if not exists teams (
 							id serial primary key not null,
 							name text not null
 						);
-					`,
-				"001_init.down.sql": `
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
 						drop table if exists teams;
-					`,
-				"002_users.up.sql": `
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
 						create table if not exists users (
 							id serial primary key not null,
 							email text not null
 						);
-					`,
-				"002_users.down.sql": `
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
 						drop table if exists users;
-					`,
-			}))
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -408,26 +434,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
 						create table if not exists teams (
 							id serial primary key not null,
 							name text not null
 						);
-					`,
-				"001_init.down.sql": `
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
 						drop table if exists teams;
-					`,
-				"002_users.up.sql": `
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
 						create table if not exists users (
 							id serial primary key not null -- intentionally missing comma
 							email text not null
 						);
-					`,
-				"002_users.down.sql": `
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
 						drop table if exists users;
-					`,
-			}))
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -458,26 +492,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
 						create table if not exists teams (
 							id serial primary key not null,
 							name text not null
 						);
-					`,
-				"001_init.down.sql": `
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
 						drop table if exis teams; -- intentional syntax error
-					`,
-				"002_users.up.sql": `
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
 						create table if not exists users (
 							id serial primary key not null,
 							email text not null
 						);
-					`,
-				"002_users.down.sql": `
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
 						drop table if exists users;
-					`,
-			}))
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -536,26 +578,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
 						create table if not exists teams (
 							id serial primary key not null,
 							name text not null
 						);
-					`,
-				"001_init.down.sql": `
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
 						drop table if exists teams;
-					`,
-				"002_users.up.sql": `
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
 						create table if not exists users (
 							id serial primary key not null,
 							email text not null
 						);
-					`,
-				"002_users.down.sql": `
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
 						drop table if exists users;
-					`,
-			}))
+					`),
+				},
+			}
 
 			db, close := connect(t, url)
 			defer close()
@@ -581,26 +631,34 @@ var tests = []struct {
 		fn: func(t testing.TB, url string) {
 			drop(t, url)
 
-			fs := httpfs.New(mapfs.New(map[string]string{
-				"001_init.up.sql": `
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
 						create table if not exists teams (
 							id serial primary key not null,
 							name text not null
 						);
-					`,
-				"001_init.down.sql": `
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
 						drop table if exists teams;
-					`,
-				"002_users.up.sql": `
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
 						create table if not exists users (
 							id serial primary key not null,
 							email text not null
 						);
-					`,
-				"002_users.down.sql": `
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
 						drop table if exists users;
-					`,
-			}))
+					`),
+				},
+			}
 
 			name, err := migrate.LocalVersion(fs)
 			assert.NoError(t, err)

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"math"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -22,7 +22,6 @@ import (
 	"github.com/lib/pq"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/matthewmueller/text"
-	"github.com/shurcooL/httpfs/vfsutil"
 
 	// sqlite db
 	_ "github.com/mattn/go-sqlite3"
@@ -44,11 +43,9 @@ var ErrNotEnoughMigrations = errors.New("remote migration version greater than t
 
 // File is a writable file
 type File interface {
-	http.File
+	fs.FS
 	io.Writer
 }
-
-var _ File = (*os.File)(nil)
 
 // Connect to a database depending on the URL schema
 func Connect(conn string) (db *sql.DB, err error) {
@@ -120,7 +117,7 @@ type Migration struct {
 }
 
 // LocalVersion fetches the latest local version
-func LocalVersion(fs http.FileSystem) (name string, err error) {
+func LocalVersion(fs fs.FS) (name string, err error) {
 	files, err := getFiles(fs)
 	if err != nil {
 		return name, err
@@ -136,7 +133,7 @@ func LocalVersion(fs http.FileSystem) (name string, err error) {
 }
 
 // RemoteVersion fetches the latest local version
-func RemoteVersion(db *sql.DB, fs http.FileSystem, tableName string) (name string, err error) {
+func RemoteVersion(db *sql.DB, fs fs.FS, tableName string) (name string, err error) {
 	if err := ensureTableExists(db, tableName); err != nil {
 		return name, err
 	}
@@ -161,13 +158,13 @@ func RemoteVersion(db *sql.DB, fs http.FileSystem, tableName string) (name strin
 }
 
 // Up migrates the database up to the latest migration
-func Up(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+func Up(log log.Interface, db *sql.DB, fs fs.FS, tableName string) error {
 	log = logger(log)
 	return UpBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // UpBy migrations the database up by i
-func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+func UpBy(log log.Interface, db *sql.DB, fs fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
@@ -224,13 +221,13 @@ func UpBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i
 }
 
 // Down migrates the database down to 0
-func Down(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string) error {
+func Down(log log.Interface, db *sql.DB, fs fs.FS, tableName string) error {
 	log = logger(log)
 	return DownBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // DownBy migrations the database down by i
-func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string, i int) error {
+func DownBy(log log.Interface, db *sql.DB, fs fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
@@ -290,8 +287,8 @@ func DownBy(log log.Interface, db *sql.DB, fs http.FileSystem, tableName string,
 	return tx.Commit()
 }
 
-func exists(fs http.FileSystem, path string) error {
-	if _, err := fs.Open(sep); os.IsNotExist(err) {
+func exists(fs fs.FS, path string) error {
+	if _, err := fs.Open(path); os.IsNotExist(err) {
 		return ErrNoMigrations
 	} else if err != nil {
 		return err
@@ -299,18 +296,18 @@ func exists(fs http.FileSystem, path string) error {
 	return nil
 }
 
-func getFiles(fs http.FileSystem) (files map[string]string, err error) {
-	if err := exists(fs, sep); err != nil {
+func getFiles(fsys fs.FS) (files map[string]string, err error) {
+	if err := exists(fsys, "."); err != nil {
 		return files, err
 	}
 	files = make(map[string]string)
-	walk := func(path string, info os.FileInfo, err error) error {
+	walk := func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		} else if info.IsDir() {
 			return nil
 		}
-		file, err := fs.Open(path)
+		file, err := fsys.Open(path)
 		if err != nil {
 			return err
 		}
@@ -322,7 +319,7 @@ func getFiles(fs http.FileSystem) (files map[string]string, err error) {
 		files[normpath] = strings.TrimSpace(dedent.String(string(buf)))
 		return err
 	}
-	if err := vfsutil.Walk(fs, sep, walk); err != nil {
+	if err := fs.WalkDir(fsys, ".", walk); err != nil {
 		return files, err
 	}
 	return files, nil

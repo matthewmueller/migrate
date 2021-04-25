@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
@@ -57,9 +56,9 @@ func main() {
 			// be a bit extra careful here
 			switch {
 			case *n == 0:
-				return migrate.Up(log, db, http.Dir(*dir), *table)
+				return migrate.Up(log, db, os.DirFS(*dir), *table)
 			case *n > 0:
-				return migrate.UpBy(log, db, http.Dir(*dir), *table, *n)
+				return migrate.UpBy(log, db, os.DirFS(*dir), *table, *n)
 			}
 			return nil
 		})
@@ -79,9 +78,9 @@ func main() {
 			// be a bit extra careful here
 			switch {
 			case *n == 0:
-				return migrate.Down(log, db, http.Dir(*dir), *table)
+				return migrate.Down(log, db, os.DirFS(*dir), *table)
 			case *n > 0:
-				return migrate.DownBy(log, db, http.Dir(*dir), *table, *n)
+				return migrate.DownBy(log, db, os.DirFS(*dir), *table, *n)
 			}
 			return nil
 		})
@@ -97,7 +96,7 @@ func main() {
 			}
 			defer db.Close()
 
-			local, err := migrate.LocalVersion(http.Dir(*dir))
+			local, err := migrate.LocalVersion(os.DirFS(*dir))
 			if err == migrate.ErrNoMigrations {
 				return errors.New("no local migrations yet")
 			} else if os.IsNotExist(err) {
@@ -106,7 +105,7 @@ func main() {
 				return err
 			}
 
-			remote, err := migrate.RemoteVersion(db, http.Dir(*dir), *table)
+			remote, err := migrate.RemoteVersion(db, os.DirFS(*dir), *table)
 			if err == migrate.ErrNoMigrations {
 				return errors.New("no remote migrations yet")
 			} else if os.IsNotExist(err) {
