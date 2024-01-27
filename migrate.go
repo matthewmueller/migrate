@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"math"
 	"net/url"
 	"os"
@@ -94,13 +93,13 @@ func New(log log.Interface, dir string, name string) error {
 	base := path.Join(dir, pad(latest+1)+"_"+text.Snake(name))
 
 	// up file
-	if err := ioutil.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {
+	if err := os.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {
 		return err
 	}
 	log.Infof("wrote: %s", base+".up.sql")
 
 	// down file
-	if err := ioutil.WriteFile(base+".down.sql", []byte{}, 0644); err != nil {
+	if err := os.WriteFile(base+".down.sql", []byte{}, 0644); err != nil {
 		return err
 	}
 	log.Infof("wrote: %s", base+".down.sql")
@@ -311,7 +310,7 @@ func getFiles(fsys fs.FS) (files map[string]string, err error) {
 		if err != nil {
 			return err
 		}
-		buf, err := ioutil.ReadAll(file)
+		buf, err := io.ReadAll(file)
 		if err != nil {
 			return err
 		}
@@ -337,7 +336,7 @@ func getFilesFromOS(dir string) (files map[string]string, err error) {
 		if err != nil {
 			return err
 		}
-		buf, err := ioutil.ReadAll(file)
+		buf, err := io.ReadAll(file)
 		if err != nil {
 			return err
 		}
