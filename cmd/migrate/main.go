@@ -24,6 +24,7 @@ func main() {
 	cli := commander.New("migrate", "No frills database migration CLI for Postgres & SQLite")
 	dir := cli.Flag("dir", "migrations directory").Default("./migrate").String()
 	table := cli.Flag("table", "table name").Default("migrate").String()
+	dbUrl := cli.Flag("db", "database url (e.g. 'postgres://localhost:5432/db')").Envar("DATABASE_URL").String()
 
 	{
 		new := cli.Command("new", "create a new migration")
@@ -44,10 +45,12 @@ func main() {
 
 	{ // migrate up
 		up := cli.Command("up", "migrate up")
-		db := up.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := up.Arg("n", "go up by n").Int()
 		up.Run(func() error {
-			db, err := migrate.Connect(*db)
+			if *dbUrl == "" {
+				return errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+			}
+			db, err := migrate.Connect(*dbUrl)
 			if err != nil {
 				return err
 			}
@@ -66,10 +69,12 @@ func main() {
 
 	{ // migrate down
 		down := cli.Command("down", "migrate down")
-		db := down.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		n := down.Arg("n", "go up by n").Int()
 		down.Run(func() error {
-			db, err := migrate.Connect(*db)
+			if *dbUrl == "" {
+				return errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+			}
+			db, err := migrate.Connect(*dbUrl)
 			if err != nil {
 				return err
 			}
@@ -86,11 +91,55 @@ func main() {
 		})
 	}
 
+	{ // reset the database
+		reset := cli.Command("reset", "reset all down then up migrations")
+		reset.Run(func() error {
+			if *dbUrl == "" {
+				return errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+			}
+			db, err := migrate.Connect(*dbUrl)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := migrate.Down(log, db, os.DirFS(*dir), *table); err != nil {
+				return err
+			}
+			if err := migrate.Up(log, db, os.DirFS(*dir), *table); err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
+	{ // redo the last migration
+		redo := cli.Command("redo", "redo the last migration")
+		redo.Run(func() error {
+			if *dbUrl == "" {
+				return errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+			}
+			db, err := migrate.Connect(*dbUrl)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := migrate.DownBy(log, db, os.DirFS(*dir), *table, 1); err != nil {
+				return err
+			}
+			if err := migrate.UpBy(log, db, os.DirFS(*dir), *table, 1); err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
 	{ // info about the current migration
 		info := cli.Command("info", "info on the current migration")
-		db := info.Arg("db", "database url (e.g. postgres://localhost:5432)").Required().String()
 		info.Run(func() error {
-			db, err := migrate.Connect(*db)
+			if *dbUrl == "" {
+				return errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+			}
+			db, err := migrate.Connect(*dbUrl)
 			if err != nil {
 				return err
 			}
