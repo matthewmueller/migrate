@@ -1,3 +1,7 @@
+# 0.0.1 / 2024-01-27
+
+- add redo, reset commands and DATABASE_URL envvar support
+
 # 0.0.0 / 2021-09-14
 
 - bump dependencies to fix migrate cli
