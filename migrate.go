@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"math"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -16,11 +16,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/apex/log"
-	"github.com/apex/log/handlers/discard"
-	"github.com/lib/pq"
+	"github.com/jackc/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/matthewmueller/logs"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/matthewmueller/text"
+	"github.com/xo/dburl"
 
 	// sqlite db
 	_ "github.com/mattn/go-sqlite3"
@@ -48,32 +49,23 @@ type File interface {
 
 // Connect to a database depending on the URL schema
 func Connect(conn string) (db *sql.DB, err error) {
-	u, err := url.Parse(conn)
+	url, err := dburl.Parse(conn)
 	if err != nil {
 		return nil, err
 	}
-	switch u.Scheme {
+	switch url.Scheme {
 	case "postgres":
-		return sql.Open("postgres", u.String())
+		return sql.Open("pgx", url.DSN)
 	case "sqlite", "sqlite3":
-		cwd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		path := filepath.Join(cwd, u.Path)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return nil, err
-		}
-		dbpath := path + "?" + u.Query().Encode()
-		return sql.Open("sqlite3", dbpath)
+		return sql.Open("sqlite3", url.DSN)
 	default:
-		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
 	}
 }
 
 // New creates a new migrations in dir
 // TODO: figure out a writable virtual file-system for this
-func New(log log.Interface, dir string, name string) error {
+func New(log *slog.Logger, dir string, name string) error {
 	log = logger(log)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -96,13 +88,13 @@ func New(log log.Interface, dir string, name string) error {
 	if err := os.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	log.Infof("wrote: %s", base+".up.sql")
+	log.Info("wrote: " + base + ".up.sql")
 
 	// down file
 	if err := os.WriteFile(base+".down.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	log.Infof("wrote: %s", base+".down.sql")
+	log.Info("wrote: " + base + ".down.sql")
 
 	return nil
 }
@@ -157,13 +149,13 @@ func RemoteVersion(db *sql.DB, fs fs.FS, tableName string) (name string, err err
 }
 
 // Up migrates the database up to the latest migration
-func Up(log log.Interface, db *sql.DB, fs fs.FS, tableName string) error {
+func Up(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string) error {
 	log = logger(log)
 	return UpBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // UpBy migrations the database up by i
-func UpBy(log log.Interface, db *sql.DB, fs fs.FS, tableName string, i int) error {
+func UpBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
@@ -220,13 +212,13 @@ func UpBy(log log.Interface, db *sql.DB, fs fs.FS, tableName string, i int) erro
 }
 
 // Down migrates the database down to 0
-func Down(log log.Interface, db *sql.DB, fs fs.FS, tableName string) error {
+func Down(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string) error {
 	log = logger(log)
 	return DownBy(log, db, fs, tableName, math.MaxInt32)
 }
 
 // DownBy migrations the database down by i
-func DownBy(log log.Interface, db *sql.DB, fs fs.FS, tableName string, i int) error {
+func DownBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fs)
 	if err != nil {
@@ -435,15 +427,17 @@ func format(migration *Migration, err error) error {
 	name := migration.Name
 	code := migration.Code
 	switch pgErr := err.(type) {
-	case *pq.Error:
+	case *pgconn.PgError:
 		var line uint
 		var col uint
 		var lineColOK bool
-		if pgErr.Position != "" {
-			if pos, err := strconv.ParseUint(pgErr.Position, 10, 64); err == nil {
-				line, col, lineColOK = computeLineFromPos(code, int(pos))
-			}
-		}
+		line, col, lineColOK = computeLineFromPos(code, int(pgErr.Position))
+
+		fmt.Println("line", line, "col", col, "lineColOK", lineColOK, "pgErr.Position", pgErr.Error())
+		// if pgErr.Position != "" {
+		// 	if pos, err := strconv.ParseUint(pgErr.Position, 10, 64); err == nil {
+		// 	}
+		// }
 		message := fmt.Sprintf("%s failed. %s", name, pgErr.Message)
 		if lineColOK {
 			message = fmt.Sprintf("%s on column %d", message, col)
@@ -564,12 +558,9 @@ func toMigrations(files map[string]string, d Direction) (migs []*Migration, err 
 	return migs, nil
 }
 
-func logger(l log.Interface) log.Interface {
+func logger(l *slog.Logger) *slog.Logger {
 	if l == nil {
-		return &log.Logger{
-			Level:   log.InfoLevel,
-			Handler: discard.New(),
-		}
+		return logs.Discard()
 	}
 	return l
 }
