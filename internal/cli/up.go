@@ -8,12 +8,12 @@ import (
 )
 
 type up struct {
-	N int
+	N *int
 }
 
 func (in *up) Command(cmd cli.Command) cli.Command {
 	cmd = cmd.Command("up", "migrate up")
-	cmd.Arg("n", "go up by n").Int(&in.N)
+	cmd.Arg("n", "go up by n").Optional().Int(&in.N)
 	return cmd
 }
 
@@ -37,10 +37,10 @@ func (c *CLI) Up(ctx context.Context, in *up) error {
 
 	// be a bit extra careful here
 	switch {
-	case in.N == 0:
+	case in.N == nil:
 		return migrate.Up(log, db, fsys, c.tableName)
-	case in.N > 0:
-		return migrate.UpBy(log, db, fsys, c.tableName, in.N)
+	case *in.N > 0:
+		return migrate.UpBy(log, db, fsys, c.tableName, *in.N)
 	}
 
 	return nil

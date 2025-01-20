@@ -8,12 +8,12 @@ import (
 )
 
 type down struct {
-	N int
+	N *int
 }
 
 func (in *down) Command(cmd cli.Command) cli.Command {
 	cmd = cmd.Command("down", "migrate down")
-	cmd.Arg("n", "go down by n").Int(&in.N)
+	cmd.Arg("n", "go down by n").Optional().Int(&in.N)
 	return cmd
 }
 
@@ -37,10 +37,10 @@ func (c *CLI) Down(ctx context.Context, in *down) error {
 
 	// be a bit extra careful here
 	switch {
-	case in.N == 0:
+	case in.N == nil:
 		return migrate.Down(log, db, fsys, c.tableName)
-	case in.N > 0:
-		return migrate.DownBy(log, db, fsys, c.tableName, in.N)
+	case *in.N > 0:
+		return migrate.DownBy(log, db, fsys, c.tableName, *in.N)
 	}
 	return nil
 }

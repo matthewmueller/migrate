@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -11,6 +12,11 @@ import (
 
 	"github.com/livebud/cli"
 	"github.com/matthewmueller/logs"
+	"github.com/xo/dburl"
+
+	// supported libraries
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func Run() int {
@@ -48,10 +54,18 @@ type CLI struct {
 }
 
 func (c *CLI) dialDb() (*sql.DB, error) {
-	if c.dbUrl == "" {
-		return nil, errors.New("missing --db=<url> flag or DATABASE_URL environment variable")
+	url, err := dburl.Parse(c.dbUrl)
+	if err != nil {
+		return nil, err
 	}
-	return sql.Open("postgres", c.dbUrl)
+	switch url.Scheme {
+	case "postgres":
+		return sql.Open("pgx", url.DSN)
+	case "sqlite", "sqlite3":
+		return sql.Open("sqlite3", url.DSN)
+	default:
+		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
+	}
 }
 
 func (c *CLI) log() (*logs.Logger, error) {
@@ -65,6 +79,9 @@ func (c *CLI) log() (*logs.Logger, error) {
 func (c *CLI) migrateFs() (fs.FS, error) {
 	migrateDir := filepath.Join(c.Dir, c.migrateDir)
 	if _, err := os.Stat(migrateDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%s/ directory doesn't exist", migrateDir)
+		}
 		return nil, err
 	}
 	return os.DirFS(migrateDir), nil
@@ -75,7 +92,7 @@ func (c *CLI) Parse(ctx context.Context, args ...string) error {
 	cli.Flag("log", "log level").Enum(&c.logLevel, "debug", "info", "warn", "error").Default("info")
 	cli.Flag("dir", "migrations directory").String(&c.migrateDir).Default("./migrate")
 	cli.Flag("table", "table name").String(&c.tableName).Default("migrate")
-	cli.Flag("db", "database url (e.g. postgres://localhost:5432/db)").String(&c.dbUrl).Default("")
+	cli.Flag("db", "database connection string").Env("DATABASE_URL").String(&c.dbUrl)
 
 	{ // New
 		in := &newIn{}

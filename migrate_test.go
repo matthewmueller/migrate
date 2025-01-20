@@ -10,6 +10,11 @@ import (
 
 	"github.com/matryer/is"
 	"github.com/matthewmueller/migrate"
+	"github.com/xo/dburl"
+
+	// sqlite db
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const tableName = "migrate"
@@ -34,10 +39,25 @@ func TestSQLite(t *testing.T) {
 	}
 }
 
+func dial(connString string) (*sql.DB, error) {
+	url, err := dburl.Parse(connString)
+	if err != nil {
+		return nil, err
+	}
+	switch url.Scheme {
+	case "postgres":
+		return sql.Open("pgx", url.DSN)
+	case "sqlite", "sqlite3":
+		return sql.Open("sqlite3", url.DSN)
+	default:
+		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
+	}
+}
+
 func connect(t testing.TB, url string) (*sql.DB, func()) {
 	t.Helper()
 	is := is.New(t)
-	db, err := migrate.Connect(url)
+	db, err := dial(url)
 	is.NoErr(err)
 	return db, func() {
 		is.NoErr(db.Close())

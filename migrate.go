@@ -17,14 +17,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/matthewmueller/logs"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/matthewmueller/text"
-	"github.com/xo/dburl"
-
-	// sqlite db
-	_ "github.com/mattn/go-sqlite3"
 )
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
@@ -45,22 +40,6 @@ var ErrNotEnoughMigrations = errors.New("remote migration version greater than t
 type File interface {
 	fs.FS
 	io.Writer
-}
-
-// Connect to a database depending on the URL schema
-func Connect(conn string) (db *sql.DB, err error) {
-	url, err := dburl.Parse(conn)
-	if err != nil {
-		return nil, err
-	}
-	switch url.Scheme {
-	case "postgres":
-		return sql.Open("pgx", url.DSN)
-	case "sqlite", "sqlite3":
-		return sql.Open("sqlite3", url.DSN)
-	default:
-		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
-	}
 }
 
 // New creates a new migrations in dir
