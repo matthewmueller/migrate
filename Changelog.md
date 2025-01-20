@@ -1,3 +1,10 @@
+# 0.0.2 / 2025-01-20
+
+- only import database clients from cli, not from migrate library
+- bump cli to v0.0.13
+- modernize library
+- remove ioutil
+
 # 0.0.1 / 2024-01-27
 
 - add redo, reset commands and DATABASE_URL envvar support
