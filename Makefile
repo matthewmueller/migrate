@@ -11,7 +11,7 @@ install: test
 	@ go install --tags $(SQLITE_TAGS) ./cmd/...
 
 release: VERSION := $(shell awk '/[0-9]+\.[0-9]+\.[0-9]+/ {print $$2; exit}' Changelog.md)
-release: test
+release: test install
 	@ go mod tidy
 	@ test -n "$(VERSION)" || (echo "Unable to read the version." && false)
 	@ test -z "`git tag -l v$(VERSION)`" || (echo "Aborting because the v$(VERSION) tag already exists." && false)
