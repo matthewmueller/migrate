@@ -1,3 +1,7 @@
+# 0.0.5 / 2025-09-03
+
+- update release target
+
 # 0.0.4 / 2025-09-03
 
 - add some versioning
