@@ -10,6 +10,7 @@ import (
 
 	"github.com/matryer/is"
 	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/virt"
 	"github.com/xo/dburl"
 
 	// sqlite db
@@ -220,7 +221,7 @@ var tests = []struct {
 			err := migrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack')`)
+			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack') returning *`)
 			is.NoErr(err)
 			for rows.Next() {
 				var id int
@@ -235,7 +236,7 @@ var tests = []struct {
 			err = migrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			_, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			_, err = db.Query(`insert into teams (id, name) values (2, 'jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "teams"))
 			is.True(notExists(err, "teams"))
@@ -276,7 +277,7 @@ var tests = []struct {
 			err := migrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack')`)
+			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack') returning *`)
 			is.NoErr(err)
 			for rows.Next() {
 				var id int
@@ -291,7 +292,7 @@ var tests = []struct {
 			err = migrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			_, err = db.Query(`insert into teams (id, name) values (2, 'jack')`)
+			_, err = db.Query(`insert into teams (id, name) values (2, 'jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "teams"))
 			is.True(notExists(err, "teams"))
@@ -340,7 +341,7 @@ var tests = []struct {
 			err = migrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			rows, err := db.Query(`insert into users (id, email) values (1, 'jack')`)
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack') returning *`)
 			is.NoErr(err)
 			for rows.Next() {
 				var id int
@@ -357,7 +358,7 @@ var tests = []struct {
 			err = migrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			_, err = db.Query(`insert into users (id, email) values (2, 'jack')`)
+			_, err = db.Query(`insert into users (id, email) values (2, 'jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
@@ -404,52 +405,52 @@ var tests = []struct {
 			err := migrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
 			err = migrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.NoErr(err)
 
 			err = migrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.NoErr(err)
 
 			err = migrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
 			err = migrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "teams"))
 			is.True(notExists(err, "teams"))
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
 			err = migrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "teams"))
 			is.True(notExists(err, "teams"))
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 		},
@@ -495,9 +496,9 @@ var tests = []struct {
 			err := migrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
@@ -506,9 +507,9 @@ var tests = []struct {
 			is.True(err != nil)
 			is.True(syntaxError(err, "email"))
 
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 		},
@@ -557,9 +558,9 @@ var tests = []struct {
 
 			err = migrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
-			_, err = db.Query(`insert into users (email) values ('jack')`)
+			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.True(err != nil)
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
@@ -568,7 +569,7 @@ var tests = []struct {
 			is.True(err != nil)
 			is.True(syntaxError(err, "exis"))
 
-			_, err = db.Query(`insert into teams (name) values ('jack')`)
+			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
 		},
 	},
@@ -580,18 +581,19 @@ var tests = []struct {
 
 			// cleanup
 			is.NoErr(os.RemoveAll("migrate"))
+			is.NoErr(os.MkdirAll("migrate", 0755))
 
-			err := migrate.New(nil, "migrate", "setup")
+			err := migrate.New(nil, virt.OS("migrate"), "setup")
 			is.NoErr(err)
 			exists(t, "migrate/001_setup.up.sql")
 			exists(t, "migrate/001_setup.down.sql")
 
-			err = migrate.New(nil, "migrate", "create teams")
+			err = migrate.New(nil, virt.OS("migrate"), "create teams")
 			is.NoErr(err)
 			exists(t, "migrate/002_create_teams.up.sql")
 			exists(t, "migrate/002_create_teams.down.sql")
 
-			err = migrate.New(nil, "migrate", "new-users")
+			err = migrate.New(nil, virt.OS("migrate"), "new-users")
 			is.NoErr(err)
 			exists(t, "migrate/003_new_users.up.sql")
 			exists(t, "migrate/003_new_users.down.sql")
@@ -691,6 +693,158 @@ var tests = []struct {
 			}
 
 			name, err := migrate.LocalVersion(fs)
+			is.NoErr(err)
+			is.Equal(`002_users.up.sql`, name)
+		},
+	},
+	{
+		name: "redo",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			is := is.New(t)
+
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists teams;
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+					`),
+				},
+			}
+
+			db, close := connect(t, url)
+			defer close()
+
+			is.NoErr(migrate.Up(nil, db, fs, "migrate"))
+
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
+			is.NoErr(err)
+			for rows.Next() {
+				var id int
+				var email string
+				err := rows.Scan(&id, &email)
+				is.NoErr(err)
+				is.Equal(1, id)
+				is.Equal("jack@standupjack.com", email)
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+
+			err = migrate.Redo(nil, db, fs, "migrate")
+			is.NoErr(err)
+
+			rows, err = db.Query(`select * from users`)
+			is.NoErr(err)
+			count := 0
+			for rows.Next() {
+				count++
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+			is.Equal(0, count)
+
+			name, err := migrate.RemoteVersion(db, fs, tableName)
+			is.NoErr(err)
+			is.Equal(`002_users.up.sql`, name)
+		},
+	},
+	{
+		name: "redo failure rollback",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			is := is.New(t)
+
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists teams;
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+					`),
+				},
+			}
+
+			db, close := connect(t, url)
+			defer close()
+
+			is.NoErr(migrate.Up(nil, db, fs, "migrate"))
+
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
+			is.NoErr(err)
+			for rows.Next() {
+				var id int
+				var email string
+				err := rows.Scan(&id, &email)
+				is.NoErr(err)
+				is.Equal(1, id)
+				is.Equal("jack@standupjack.com", email)
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+
+			// make the up migration fail
+			fs["002_users.up.sql"] = &fstest.MapFile{
+				Data: []byte(`
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null,
+					; -- syntax error
+				`),
+			}
+
+			err = migrate.Redo(nil, db, fs, "migrate")
+			is.True(err != nil)
+
+			rows, err = db.Query(`select * from users`)
+			is.NoErr(err)
+			count := 0
+			for rows.Next() {
+				count++
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+			is.Equal(1, count)
+
+			name, err := migrate.RemoteVersion(db, fs, tableName)
 			is.NoErr(err)
 			is.Equal(`002_users.up.sql`, name)
 		},

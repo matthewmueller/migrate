@@ -9,8 +9,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -20,6 +18,7 @@ import (
 	"github.com/matthewmueller/logs"
 	"github.com/matthewmueller/migrate/internal/dedent"
 	"github.com/matthewmueller/text"
+	"github.com/matthewmueller/virt"
 )
 
 var reFile = regexp.MustCompile(`^\d\d\d_`)
@@ -43,13 +42,9 @@ type File interface {
 }
 
 // New creates a new migrations in dir
-// TODO: figure out a writable virtual file-system for this
-func New(log *slog.Logger, dir string, name string) error {
+func New(log *slog.Logger, fsys virt.FS, name string) error {
 	log = logger(log)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	files, err := getFilesFromOS(dir)
+	files, err := getFiles(fsys)
 	if err != nil {
 		return err
 	}
@@ -61,19 +56,19 @@ func New(log *slog.Logger, dir string, name string) error {
 	if len(migrations) > 0 {
 		latest = migrations[len(migrations)-1].Version
 	}
-	base := path.Join(dir, pad(latest+1)+"_"+text.Snake(name))
+	filename := pad(latest+1) + "_" + text.Snake(name)
 
 	// up file
-	if err := os.WriteFile(base+".up.sql", []byte{}, 0644); err != nil {
+	if err := fsys.WriteFile(filename+".up.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	log.Info("wrote: " + base + ".up.sql")
+	log.Info("wrote: " + filename + ".up.sql")
 
 	// down file
-	if err := os.WriteFile(base+".down.sql", []byte{}, 0644); err != nil {
+	if err := fsys.WriteFile(filename+".down.sql", []byte{}, 0644); err != nil {
 		return err
 	}
-	log.Info("wrote: " + base + ".down.sql")
+	log.Info("wrote: " + filename + ".down.sql")
 
 	return nil
 }
@@ -87,8 +82,8 @@ type Migration struct {
 }
 
 // LocalVersion fetches the latest local version
-func LocalVersion(fs fs.FS) (name string, err error) {
-	files, err := getFiles(fs)
+func LocalVersion(fsys fs.FS) (name string, err error) {
+	files, err := getFiles(fsys)
 	if err != nil {
 		return name, err
 	}
@@ -103,7 +98,7 @@ func LocalVersion(fs fs.FS) (name string, err error) {
 }
 
 // RemoteVersion fetches the latest local version
-func RemoteVersion(db *sql.DB, fs fs.FS, tableName string) (name string, err error) {
+func RemoteVersion(db *sql.DB, fsys fs.FS, tableName string) (name string, err error) {
 	if err := ensureTableExists(db, tableName); err != nil {
 		return name, err
 	}
@@ -113,7 +108,7 @@ func RemoteVersion(db *sql.DB, fs fs.FS, tableName string) (name string, err err
 	} else if remote == 0 {
 		return name, ErrNoMigrations
 	}
-	files, err := getFiles(fs)
+	files, err := getFiles(fsys)
 	if err != nil {
 		return name, err
 	}
@@ -128,15 +123,15 @@ func RemoteVersion(db *sql.DB, fs fs.FS, tableName string) (name string, err err
 }
 
 // Up migrates the database up to the latest migration
-func Up(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string) error {
+func Up(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
 	log = logger(log)
-	return UpBy(log, db, fs, tableName, math.MaxInt32)
+	return UpBy(log, db, fsys, tableName, math.MaxInt32)
 }
 
 // UpBy migrations the database up by i
-func UpBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) error {
+func UpBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) error {
 	log = logger(log)
-	files, err := getFiles(fs)
+	files, err := getFiles(fsys)
 	if err != nil {
 		return err
 	}
@@ -191,15 +186,15 @@ func UpBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) error
 }
 
 // Down migrates the database down to 0
-func Down(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string) error {
+func Down(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
 	log = logger(log)
-	return DownBy(log, db, fs, tableName, math.MaxInt32)
+	return DownBy(log, db, fsys, tableName, math.MaxInt32)
 }
 
 // DownBy migrations the database down by i
-func DownBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) error {
+func DownBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) error {
 	log = logger(log)
-	files, err := getFiles(fs)
+	files, err := getFiles(fsys)
 	if err != nil {
 		return err
 	}
@@ -241,7 +236,7 @@ func DownBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) err
 			return format(migration, err)
 		}
 
-		// increment version
+		// decrement version
 		if err := deleteVersion(tx, tableName, remote); err != nil {
 			return err
 		}
@@ -257,8 +252,69 @@ func DownBy(log *slog.Logger, db *sql.DB, fs fs.FS, tableName string, i int) err
 	return tx.Commit()
 }
 
-func exists(fs fs.FS, path string) error {
-	if _, err := fs.Open(path); os.IsNotExist(err) {
+func Redo(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
+	log = logger(log)
+	files, err := getFiles(fsys)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return ErrNoMigrations
+	}
+
+	if err := ensureTableExists(db, tableName); err != nil {
+		return err
+	}
+
+	// get the current remote
+	remote, err := getRemoteVersion(db, tableName)
+	if err != nil {
+		return err
+	}
+
+	// Down migrations
+	downMigrations, err := downMigrations(files)
+	if err != nil {
+		return err
+	} else if len(downMigrations) == 0 {
+		return ErrNoMigrations
+	}
+
+	// Up migrations
+	upMigrations, err := upMigrations(files)
+	if err != nil {
+		return err
+	} else if len(upMigrations) == 0 {
+		return ErrNoMigrations
+	}
+
+	// Redo the latest migration
+	downMigration := downMigrations[remote-1]
+	upMigration := upMigrations[remote-1]
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// execute the down migration
+	log.Info(downMigration.Name)
+	if _, err := tx.Exec(downMigration.Code); err != nil {
+		return format(downMigration, err)
+	}
+
+	// execute the up migration
+	log.Info(upMigration.Name)
+	if _, err := tx.Exec(upMigration.Code); err != nil {
+		return format(upMigration, err)
+	}
+
+	return tx.Commit()
+}
+
+func exists(fsys fs.FS, path string) error {
+	if _, err := fs.Stat(fsys, path); errors.Is(err, fs.ErrNotExist) {
 		return ErrNoMigrations
 	} else if err != nil {
 		return err
@@ -290,36 +346,6 @@ func getFiles(fsys fs.FS) (files map[string]string, err error) {
 		return err
 	}
 	if err := fs.WalkDir(fsys, ".", walk); err != nil {
-		return files, err
-	}
-	return files, nil
-}
-
-func getFilesFromOS(dir string) (files map[string]string, err error) {
-	files = make(map[string]string)
-	walk := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		} else if info.IsDir() {
-			return nil
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		buf, err := io.ReadAll(file)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		normpath := strings.Trim(rel, sep)
-		files[normpath] = strings.TrimSpace(dedent.String(string(buf)))
-		return err
-	}
-	if err := filepath.Walk(dir, walk); err != nil {
 		return files, err
 	}
 	return files, nil

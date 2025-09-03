@@ -54,6 +54,9 @@ type CLI struct {
 }
 
 func (c *CLI) dialDb() (*sql.DB, error) {
+	if c.dbUrl == "" {
+		return nil, errors.New("missing --db or $DATABASE_URL environment variable")
+	}
 	url, err := dburl.Parse(c.dbUrl)
 	if err != nil {
 		return nil, err
@@ -76,12 +79,48 @@ func (c *CLI) log() (*logs.Logger, error) {
 	return logs.New(logs.Filter(lvl, logs.Console(c.Stderr))), nil
 }
 
-func (c *CLI) migrateFs() (fs.FS, error) {
-	migrateDir := filepath.Join(c.Dir, c.migrateDir)
-	if _, err := os.Stat(migrateDir); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%s/ directory doesn't exist", migrateDir)
+// findFirstDir returns the first directory that exists in the list of paths
+func findFirstDir(paths ...string) (string, error) {
+	for _, path := range paths {
+		if path == "" {
+			continue
 		}
+		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("unable to find migration directory in %v", paths)
+}
+
+func resolveDir(base, dir string) string {
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	return filepath.Join(base, dir)
+}
+
+func (c *CLI) findMigrateDir() (string, error) {
+	// First check if the user provided a directory
+	if c.migrateDir != "" {
+		migrateDir := resolveDir(c.Dir, c.migrateDir)
+		if _, err := os.Stat(migrateDir); err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("%s/ directory doesn't exist", migrateDir)
+			}
+			return "", err
+		}
+		return migrateDir, nil
+	}
+	// Otherwise look in a few other default locations
+	return findFirstDir(
+		filepath.Join(c.Dir, "migrate"),
+		filepath.Join(c.Dir, "internal", "migrate"),
+	)
+}
+
+func (c *CLI) migrateFs() (fs.FS, error) {
+	migrateDir, err := c.findMigrateDir()
+	if err != nil {
 		return nil, err
 	}
 	return os.DirFS(migrateDir), nil
@@ -90,9 +129,9 @@ func (c *CLI) migrateFs() (fs.FS, error) {
 func (c *CLI) Parse(ctx context.Context, args ...string) error {
 	cli := cli.New("migrate", "No frills database migration CLI for Postgres & SQLite")
 	cli.Flag("log", "log level").Enum(&c.logLevel, "debug", "info", "warn", "error").Default("info")
-	cli.Flag("dir", "migrations directory").String(&c.migrateDir).Default("./migrate")
+	cli.Flag("dir", "migrations directory").String(&c.migrateDir).Default("")
 	cli.Flag("table", "table name").String(&c.tableName).Default("migrate")
-	cli.Flag("db", "database connection string").Env("DATABASE_URL").String(&c.dbUrl)
+	cli.Flag("db", "database connection string").Env("DATABASE_URL").String(&c.dbUrl).Default("")
 
 	{ // New
 		in := &newIn{}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/livebud/cli"
 	"github.com/matthewmueller/migrate"
@@ -47,6 +48,7 @@ func (c *CLI) Info(ctx context.Context, in *info) error {
 	} else if err != nil {
 		return err
 	}
+	fmt.Println(remote)
 
 	log.Info("local: " + local)
 	log.Info("remote: " + remote)

@@ -33,12 +33,5 @@ func (c *CLI) Redo(ctx context.Context, in *redo) error {
 		return err
 	}
 
-	if err := migrate.DownBy(log, db, fsys, c.tableName, 1); err != nil {
-		return err
-	}
-	if err := migrate.UpBy(log, db, fsys, c.tableName, 1); err != nil {
-		return err
-	}
-
-	return nil
+	return migrate.Redo(log, db, fsys, c.tableName)
 }
