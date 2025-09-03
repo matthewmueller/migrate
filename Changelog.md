@@ -1,3 +1,8 @@
+# 0.0.4 / 2025-09-03
+
+- add some versioning
+- remove fmt.Printlns
+
 # 0.0.3 / 2025-09-03
 
 - fix redo to run down and up inside a transaction.
