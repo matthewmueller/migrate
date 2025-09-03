@@ -20,7 +20,8 @@ release: test install
 	@ test -n "`git status --porcelain | grep -v 'M (Changelog\.md)'`" || (echo "Changelog.md must have changes" && false)
 	@ go run github.com/x-motemen/gobump/cmd/gobump@latest set $(VERSION) -w .
 	@ test -n "`git status --porcelain | grep -v 'M (version\.go)'`" || (echo "version.go must have changes" && false)
-	@ git commit -am "Release v$(VERSION)"
+	@ git add -A && git commit -m "Release v$(VERSION)"
+	@ test -z "`git status --porcelain`" || (echo "Aborting from uncommitted changes." && false)
 	@ git tag "v$(VERSION)"
 	@ git push origin main "v$(VERSION)"
 	@ go run github.com/cli/cli/v2/cmd/gh@latest release create --generate-notes "v$(VERSION)"
