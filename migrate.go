@@ -313,6 +313,11 @@ func Redo(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
 	return tx.Commit()
 }
 
+// Version gets the current version of migrate
+func Version() string {
+	return version
+}
+
 func exists(fsys fs.FS, path string) error {
 	if _, err := fs.Stat(fsys, path); errors.Is(err, fs.ErrNotExist) {
 		return ErrNoMigrations
@@ -438,7 +443,6 @@ func format(migration *Migration, err error) error {
 		var lineColOK bool
 		line, col, lineColOK = computeLineFromPos(code, int(pgErr.Position))
 
-		fmt.Println("line", line, "col", col, "lineColOK", lineColOK, "pgErr.Position", pgErr.Error())
 		// if pgErr.Position != "" {
 		// 	if pos, err := strconv.ParseUint(pgErr.Position, 10, 64); err == nil {
 		// 	}

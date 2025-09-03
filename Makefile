@@ -16,8 +16,10 @@ release: test install
 	@ go mod tidy
 	@ test -n "$(VERSION)" || (echo "Unable to read the version." && false)
 	@ test -z "`git tag -l v$(VERSION)`" || (echo "Aborting because the v$(VERSION) tag already exists." && false)
-	@ test -z "`git status --porcelain | grep -vE 'M (Changelog\.md)'`" || (echo "Aborting from uncommitted changes." && false)
+	@ test -z "`git status --porcelain | grep -vE 'M (Changelog\.md|version\.go)'`" || (echo "Aborting from uncommitted changes." && false)
 	@ test -n "`git status --porcelain | grep -v 'M (Changelog\.md)'`" || (echo "Changelog.md must have changes" && false)
+	@ go run github.com/x-motemen/gobump/cmd/gobump@latest set $(VERSION) -w .
+	@ test -n "`git status --porcelain | grep -v 'M (version\.go)'`" || (echo "version.go must have changes" && false)
 	@ git commit -am "Release v$(VERSION)"
 	@ git tag "v$(VERSION)"
 	@ git push origin main "v$(VERSION)"

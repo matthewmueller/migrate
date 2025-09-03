@@ -169,6 +169,12 @@ func (c *CLI) Parse(ctx context.Context, args ...string) error {
 		cmd.Run(func(ctx context.Context) error { return c.Info(ctx, in) })
 	}
 
+	{ // Version
+		in := &version{}
+		cmd := in.Command(cli)
+		cmd.Run(func(ctx context.Context) error { return c.Version(ctx, in) })
+	}
+
 	// Run the CLI
 	if err := cli.Parse(ctx, args...); err != nil {
 		if errors.Is(err, context.Canceled) {
