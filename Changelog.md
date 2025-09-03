@@ -1,3 +1,10 @@
+# 0.0.3 / 2025-09-03
+
+- fix redo to run down and up inside a transaction.
+- support migrate in internal/migrate.
+- add support for using a virtual filesystem with migrate.New.
+- 'migrate new' cli no longer requires a DATABASE_URL or --db flag
+
 # 0.0.2 / 2025-01-20
 
 - only import database clients from cli, not from migrate library
