@@ -12,7 +12,7 @@ install: test
 	@ go install --tags $(SQLITE_TAGS) ./cmd/...
 
 release: VERSION := $(shell awk '/[0-9]+\.[0-9]+\.[0-9]+/ {print $$2; exit}' Changelog.md)
-release: VERSION_FILE := internal/cli/version.go
+release: VERSION_FILE := version.go
 release: CHANGELOG_FILE := Changelog.md
 release: test
 	@ go mod tidy
