@@ -23,7 +23,7 @@ func Run() int {
 	ctx := context.Background()
 	cli := Default()
 	if err := cli.Parse(ctx, os.Args[1:]...); err != nil {
-		logs.Error(err.Error())
+		logs.Fatal(err)
 		return 1
 	}
 	return 0
