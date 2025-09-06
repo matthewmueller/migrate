@@ -1,3 +1,9 @@
+# 0.0.6 / 2025-09-06
+
+- make the makefile more generic
+- bump dependencies and fix breaking change
+- add the install at the end
+
 # 0.0.5 / 2025-09-03
 
 - update release target
