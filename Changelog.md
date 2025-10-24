@@ -1,3 +1,7 @@
+# 0.0.7 / 2025-10-23
+
+- support `postgresql` as a schema
+
 # 0.0.6 / 2025-09-06
 
 - make the makefile more generic

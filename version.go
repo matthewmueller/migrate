@@ -1,4 +1,4 @@
 // GENERATED FILE, DO NOT EDIT
 package migrate
 
-var version = "0.0.6"
+var version = "0.0.7"
