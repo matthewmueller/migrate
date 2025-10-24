@@ -12,7 +12,7 @@ import (
 
 	"github.com/livebud/cli"
 	"github.com/matthewmueller/logs"
-	"github.com/xo/dburl"
+	"github.com/matthewmueller/migrate/internal/db"
 
 	// supported libraries
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -57,18 +57,7 @@ func (c *CLI) dialDb() (*sql.DB, error) {
 	if c.dbUrl == "" {
 		return nil, errors.New("missing --db or $DATABASE_URL environment variable")
 	}
-	url, err := dburl.Parse(c.dbUrl)
-	if err != nil {
-		return nil, err
-	}
-	switch url.Scheme {
-	case "postgres":
-		return sql.Open("pgx", url.DSN)
-	case "sqlite", "sqlite3":
-		return sql.Open("sqlite3", url.DSN)
-	default:
-		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
-	}
+	return db.Dial(c.dbUrl)
 }
 
 func (c *CLI) log() (*logs.Logger, error) {

@@ -438,17 +438,9 @@ func format(migration *Migration, err error) error {
 	code := migration.Code
 	switch pgErr := err.(type) {
 	case *pgconn.PgError:
-		var line uint
-		var col uint
-		var lineColOK bool
-		line, col, lineColOK = computeLineFromPos(code, int(pgErr.Position))
-
-		// if pgErr.Position != "" {
-		// 	if pos, err := strconv.ParseUint(pgErr.Position, 10, 64); err == nil {
-		// 	}
-		// }
 		message := fmt.Sprintf("%s failed. %s", name, pgErr.Message)
-		if lineColOK {
+		line, col, ok := computeLineFromPos(code, int(pgErr.Position))
+		if ok {
 			message = fmt.Sprintf("%s on column %d", message, col)
 		}
 		if pgErr.Detail != "" {

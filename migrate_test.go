@@ -10,8 +10,8 @@ import (
 
 	"github.com/matryer/is"
 	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/db"
 	"github.com/matthewmueller/virt"
-	"github.com/xo/dburl"
 
 	// sqlite db
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -22,6 +22,15 @@ const tableName = "migrate"
 
 func TestPostgres(t *testing.T) {
 	url := "postgres://localhost:5432/migrate-test?sslmode=disable"
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.fn(t, url)
+		})
+	}
+}
+
+func TestPostgreSQL(t *testing.T) {
+	url := "postgresql://localhost:5432/migrate-test?sslmode=disable"
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			test.fn(t, url)
@@ -40,25 +49,21 @@ func TestSQLite(t *testing.T) {
 	}
 }
 
-func dial(connString string) (*sql.DB, error) {
-	url, err := dburl.Parse(connString)
-	if err != nil {
-		return nil, err
-	}
-	switch url.Scheme {
-	case "postgres":
-		return sql.Open("pgx", url.DSN)
-	case "sqlite", "sqlite3":
-		return sql.Open("sqlite3", url.DSN)
-	default:
-		return nil, fmt.Errorf("migrate doesn't support this url scheme: %s", url.Scheme)
+func TestSQLite3(t *testing.T) {
+	url := "sqlite3://tmp.db"
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			is := is.New(t)
+			is.NoErr(os.RemoveAll("./tmp.db"))
+			test.fn(t, url)
+		})
 	}
 }
 
 func connect(t testing.TB, url string) (*sql.DB, func()) {
 	t.Helper()
 	is := is.New(t)
-	db, err := dial(url)
+	db, err := db.Dial(url)
 	is.NoErr(err)
 	return db, func() {
 		is.NoErr(db.Close())
