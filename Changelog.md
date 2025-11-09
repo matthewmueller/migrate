@@ -1,3 +1,7 @@
+# 0.0.8 / 2025-11-09
+
+- fix migrate new when there's already an internal/migrate directory
+
 # 0.0.7 / 2025-10-23
 
 - support `postgresql` as a schema
