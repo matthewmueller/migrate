@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 
 	"github.com/Bowery/prompt"
@@ -33,11 +35,13 @@ func (c *CLI) New(ctx context.Context, in *newIn) (err error) {
 	}
 
 	// Create the migrate directory if it doesn't exist
-	migrateDir := c.migrateDir
-	if c.migrateDir == "" {
-		migrateDir = "migrate"
+	migrateDir, err := c.findMigrateDir()
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		migrateDir = resolveDir(c.Dir, "migrate")
 	}
-	migrateDir = resolveDir(c.Dir, migrateDir)
 	if err := os.MkdirAll(migrateDir, 0755); err != nil {
 		return err
 	}

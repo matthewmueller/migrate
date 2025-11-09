@@ -78,7 +78,7 @@ func findFirstDir(paths ...string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("unable to find migration directory in %v", paths)
+	return "", fmt.Errorf("unable to find migration directory in %v: %w", paths, os.ErrNotExist)
 }
 
 func resolveDir(base, dir string) string {
