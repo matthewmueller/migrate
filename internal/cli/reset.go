@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/livebud/cli"
-	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
 )
 
 type reset struct {
@@ -33,11 +33,5 @@ func (c *CLI) Reset(ctx context.Context, in *reset) (err error) {
 		return err
 	}
 
-	if err := migrate.Down(log, db, fsys, c.tableName); err != nil {
-		return err
-	}
-	if err := migrate.Up(log, db, fsys, c.tableName); err != nil {
-		return err
-	}
-	return nil
+	return txmigrate.Reset(log, db, fsys, c.tableName)
 }

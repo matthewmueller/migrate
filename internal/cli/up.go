@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/livebud/cli"
-	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
 )
 
 type up struct {
@@ -38,9 +38,9 @@ func (c *CLI) Up(ctx context.Context, in *up) error {
 	// be a bit extra careful here
 	switch {
 	case in.N == nil:
-		return migrate.Up(log, db, fsys, c.tableName)
+		return txmigrate.Up(log, db, fsys, c.tableName)
 	case *in.N > 0:
-		return migrate.UpBy(log, db, fsys, c.tableName, *in.N)
+		return txmigrate.UpBy(log, db, fsys, c.tableName, *in.N)
 	}
 
 	return nil

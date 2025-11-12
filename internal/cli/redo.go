@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/livebud/cli"
-	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
 )
 
 type redo struct {
@@ -33,5 +33,5 @@ func (c *CLI) Redo(ctx context.Context, in *redo) error {
 		return err
 	}
 
-	return migrate.Redo(log, db, fsys, c.tableName)
+	return txmigrate.Redo(log, db, fsys, c.tableName)
 }

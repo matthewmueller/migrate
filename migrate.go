@@ -24,8 +24,6 @@ import (
 var reFile = regexp.MustCompile(`^\d\d\d_`)
 var sep = string(os.PathSeparator)
 
-// var tableName = "migrate"
-
 // ErrZerothMigration occurs when the migrations start at 000
 var ErrZerothMigration = errors.New("migrations should start at 001 not 000")
 
@@ -39,6 +37,11 @@ var ErrNotEnoughMigrations = errors.New("remote migration version greater than t
 type File interface {
 	fs.FS
 	io.Writer
+}
+
+type DB interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
 }
 
 // New creates a new migrations in dir
@@ -98,7 +101,7 @@ func LocalVersion(fsys fs.FS) (name string, err error) {
 }
 
 // RemoteVersion fetches the latest local version
-func RemoteVersion(db *sql.DB, fsys fs.FS, tableName string) (name string, err error) {
+func RemoteVersion(db DB, fsys fs.FS, tableName string) (name string, err error) {
 	if err := ensureTableExists(db, tableName); err != nil {
 		return name, err
 	}
@@ -123,13 +126,13 @@ func RemoteVersion(db *sql.DB, fsys fs.FS, tableName string) (name string, err e
 }
 
 // Up migrates the database up to the latest migration
-func Up(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
+func Up(log *slog.Logger, db DB, fsys fs.FS, tableName string) error {
 	log = logger(log)
 	return UpBy(log, db, fsys, tableName, math.MaxInt32)
 }
 
 // UpBy migrations the database up by i
-func UpBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) error {
+func UpBy(log *slog.Logger, db DB, fsys fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fsys)
 	if err != nil {
@@ -153,11 +156,6 @@ func UpBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) err
 		return err
 	}
 	local := migrations[len(migrations)-1].Version
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 
 	// next remote
 	remote++
@@ -165,12 +163,12 @@ func UpBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) err
 		migration := migrations[remote-1]
 
 		// execute the migration code
-		if _, err := tx.Exec(migration.Code); err != nil {
+		if _, err := db.Exec(migration.Code); err != nil {
 			return format(migration, err)
 		}
 
 		// increment version
-		if err := insertVersion(tx, tableName, remote); err != nil {
+		if err := insertVersion(db, tableName, remote); err != nil {
 			return err
 		}
 
@@ -182,17 +180,17 @@ func UpBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) err
 		remote++
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // Down migrates the database down to 0
-func Down(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
+func Down(log *slog.Logger, db DB, fsys fs.FS, tableName string) error {
 	log = logger(log)
 	return DownBy(log, db, fsys, tableName, math.MaxInt32)
 }
 
 // DownBy migrations the database down by i
-func DownBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) error {
+func DownBy(log *slog.Logger, db DB, fsys fs.FS, tableName string, i int) error {
 	log = logger(log)
 	files, err := getFiles(fsys)
 	if err != nil {
@@ -219,11 +217,6 @@ func DownBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) e
 	// get the earliest local
 	local := migrations[0].Version
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	// next remote
 	for i > 0 && remote >= local {
 		if len(migrations) < int(remote) {
@@ -232,12 +225,12 @@ func DownBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) e
 		migration := migrations[remote-1]
 
 		// execute the migration code
-		if _, err := tx.Exec(migration.Code); err != nil {
+		if _, err := db.Exec(migration.Code); err != nil {
 			return format(migration, err)
 		}
 
 		// decrement version
-		if err := deleteVersion(tx, tableName, remote); err != nil {
+		if err := deleteVersion(db, tableName, remote); err != nil {
 			return err
 		}
 
@@ -249,10 +242,10 @@ func DownBy(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string, i int) e
 		remote--
 	}
 
-	return tx.Commit()
+	return nil
 }
 
-func Redo(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
+func Redo(log *slog.Logger, db DB, fsys fs.FS, tableName string) error {
 	log = logger(log)
 	files, err := getFiles(fsys)
 	if err != nil {
@@ -260,16 +253,6 @@ func Redo(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
 	}
 	if len(files) == 0 {
 		return ErrNoMigrations
-	}
-
-	if err := ensureTableExists(db, tableName); err != nil {
-		return err
-	}
-
-	// get the current remote
-	remote, err := getRemoteVersion(db, tableName)
-	if err != nil {
-		return err
 	}
 
 	// Down migrations
@@ -288,29 +271,45 @@ func Redo(log *slog.Logger, db *sql.DB, fsys fs.FS, tableName string) error {
 		return ErrNoMigrations
 	}
 
+	if err := ensureTableExists(db, tableName); err != nil {
+		return err
+	}
+
+	// get the current remote
+	remote, err := getRemoteVersion(db, tableName)
+	if err != nil {
+		return err
+	}
+
 	// Redo the latest migration
 	downMigration := downMigrations[remote-1]
 	upMigration := upMigrations[remote-1]
 
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
 	// execute the down migration
 	log.Info(downMigration.Name)
-	if _, err := tx.Exec(downMigration.Code); err != nil {
+	if _, err := db.Exec(downMigration.Code); err != nil {
 		return format(downMigration, err)
 	}
 
 	// execute the up migration
 	log.Info(upMigration.Name)
-	if _, err := tx.Exec(upMigration.Code); err != nil {
+	if _, err := db.Exec(upMigration.Code); err != nil {
 		return format(upMigration, err)
 	}
 
-	return tx.Commit()
+	return nil
+}
+
+// Reset all migrations
+func Reset(log *slog.Logger, db DB, fsys fs.FS, tableName string) error {
+	log = logger(log)
+	if err := Down(log, db, fsys, tableName); err != nil {
+		return err
+	}
+	if err := Up(log, db, fsys, tableName); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Version gets the current version of migrate
@@ -384,7 +383,7 @@ func getDirection(filename string) (Direction, error) {
 }
 
 // ensure the table exists
-func ensureTableExists(db *sql.DB, tableName string) error {
+func ensureTableExists(db DB, tableName string) error {
 	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
@@ -392,7 +391,7 @@ func ensureTableExists(db *sql.DB, tableName string) error {
 }
 
 // Version gets the version from postgres
-func getRemoteVersion(db *sql.DB, tableName string) (version uint, err error) {
+func getRemoteVersion(db DB, tableName string) (version uint, err error) {
 	err = db.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
 	switch {
 	case err == sql.ErrNoRows:
@@ -405,16 +404,16 @@ func getRemoteVersion(db *sql.DB, tableName string) (version uint, err error) {
 }
 
 // insert a new version into the table
-func insertVersion(tx *sql.Tx, tableName string, version uint) error {
-	if _, err := tx.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
+func insertVersion(db DB, tableName string, version uint) error {
+	if _, err := db.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
 		return err
 	}
 	return nil
 }
 
 // delete a version from the table
-func deleteVersion(tx *sql.Tx, tableName string, version uint) error {
-	if _, err := tx.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
+func deleteVersion(db DB, tableName string, version uint) error {
+	if _, err := db.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
 		return err
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 
 	"github.com/livebud/cli"
 	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
 )
 
 type info struct {
@@ -41,7 +42,7 @@ func (c *CLI) Info(ctx context.Context, in *info) error {
 		return err
 	}
 
-	remote, err := migrate.RemoteVersion(db, fsys, c.tableName)
+	remote, err := txmigrate.RemoteVersion(db, fsys, c.tableName)
 	if err == migrate.ErrNoMigrations {
 		return errors.New("no remote migrations yet")
 	} else if err != nil {

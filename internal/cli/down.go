@@ -4,7 +4,8 @@ import (
 	"context"
 
 	"github.com/livebud/cli"
-	"github.com/matthewmueller/migrate"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
+	// "github.com/matthewmueller/migrate"
 )
 
 type down struct {
@@ -38,9 +39,9 @@ func (c *CLI) Down(ctx context.Context, in *down) error {
 	// be a bit extra careful here
 	switch {
 	case in.N == nil:
-		return migrate.Down(log, db, fsys, c.tableName)
+		return txmigrate.Down(log, db, fsys, c.tableName)
 	case *in.N > 0:
-		return migrate.DownBy(log, db, fsys, c.tableName, *in.N)
+		return txmigrate.DownBy(log, db, fsys, c.tableName, *in.N)
 	}
 	return nil
 }

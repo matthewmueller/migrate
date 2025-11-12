@@ -11,6 +11,7 @@ import (
 	"github.com/matryer/is"
 	"github.com/matthewmueller/migrate"
 	"github.com/matthewmueller/migrate/internal/db"
+	"github.com/matthewmueller/migrate/internal/txmigrate"
 	"github.com/matthewmueller/virt"
 
 	// sqlite db
@@ -112,7 +113,7 @@ var tests = []struct {
 			fs := fstest.MapFS{}
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.Equal(migrate.ErrNoMigrations, err)
 		},
 	},
@@ -127,7 +128,7 @@ var tests = []struct {
 			}
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.Equal(migrate.ErrNoMigrations, err)
 		},
 	},
@@ -139,7 +140,7 @@ var tests = []struct {
 			fs := fstest.MapFS{}
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Down(nil, db, fs, tableName)
+			err := txmigrate.Down(nil, db, fs, tableName)
 			is.Equal(migrate.ErrNoMigrations, err)
 		},
 	},
@@ -154,7 +155,7 @@ var tests = []struct {
 			}
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Down(nil, db, fs, tableName)
+			err := txmigrate.Down(nil, db, fs, tableName)
 			is.Equal(migrate.ErrNoMigrations, err)
 		},
 	},
@@ -187,7 +188,7 @@ var tests = []struct {
 			}
 			db, close := connect(t, url)
 			defer close()
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.Equal(migrate.ErrZerothMigration, err)
 		},
 	},
@@ -223,7 +224,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack') returning *`)
@@ -238,7 +239,7 @@ var tests = []struct {
 			}
 			is.NoErr(rows.Err())
 
-			err = migrate.Down(nil, db, fs, tableName)
+			err = txmigrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			_, err = db.Query(`insert into teams (id, name) values (2, 'jack') returning *`)
@@ -279,7 +280,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			rows, err := db.Query(`insert into teams (id, name) values (1, 'jack') returning *`)
@@ -294,7 +295,7 @@ var tests = []struct {
 			}
 			is.NoErr(rows.Err())
 
-			err = migrate.Down(nil, db, fs, tableName)
+			err = txmigrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			_, err = db.Query(`insert into teams (id, name) values (2, 'jack') returning *`)
@@ -341,9 +342,9 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
-			err = migrate.Up(nil, db, fs, tableName)
+			err = txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			rows, err := db.Query(`insert into users (id, email) values (1, 'jack') returning *`)
@@ -358,9 +359,9 @@ var tests = []struct {
 			}
 			is.NoErr(rows.Err())
 
-			err = migrate.Down(nil, db, fs, tableName)
+			err = txmigrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
-			err = migrate.Down(nil, db, fs, tableName)
+			err = txmigrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
 			_, err = db.Query(`insert into users (id, email) values (2, 'jack') returning *`)
@@ -407,7 +408,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.UpBy(nil, db, fs, tableName, 1)
+			err := txmigrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
@@ -417,14 +418,14 @@ var tests = []struct {
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
-			err = migrate.UpBy(nil, db, fs, tableName, 1)
+			err = txmigrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
 			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.NoErr(err)
 
-			err = migrate.UpBy(nil, db, fs, tableName, 1)
+			err = txmigrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
@@ -432,7 +433,7 @@ var tests = []struct {
 			_, err = db.Query(`insert into users (email) values ('jack') returning *`)
 			is.NoErr(err)
 
-			err = migrate.DownBy(nil, db, fs, tableName, 1)
+			err = txmigrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
@@ -441,7 +442,7 @@ var tests = []struct {
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
-			err = migrate.DownBy(nil, db, fs, tableName, 1)
+			err = txmigrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "teams"))
@@ -450,7 +451,7 @@ var tests = []struct {
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
-			err = migrate.DownBy(nil, db, fs, tableName, 1)
+			err = txmigrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.True(strings.Contains(err.Error(), "teams"))
@@ -498,7 +499,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			err := migrate.UpBy(nil, db, fs, tableName, 1)
+			err := txmigrate.UpBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
@@ -508,7 +509,7 @@ var tests = []struct {
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
-			err = migrate.UpBy(nil, db, fs, tableName, 1)
+			err = txmigrate.UpBy(nil, db, fs, tableName, 1)
 			is.True(err != nil)
 			is.True(syntaxError(err, "email"))
 
@@ -558,10 +559,10 @@ var tests = []struct {
 			defer close()
 
 			// setup
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			err = migrate.DownBy(nil, db, fs, tableName, 1)
+			err = txmigrate.DownBy(nil, db, fs, tableName, 1)
 			is.NoErr(err)
 			_, err = db.Query(`insert into teams (name) values ('jack') returning *`)
 			is.NoErr(err)
@@ -570,7 +571,7 @@ var tests = []struct {
 			is.True(strings.Contains(err.Error(), "users"))
 			is.True(notExists(err, "users"))
 
-			err = migrate.DownBy(nil, db, fs, tableName, 1)
+			err = txmigrate.DownBy(nil, db, fs, tableName, 1)
 			is.True(err != nil)
 			is.True(syntaxError(err, "exis"))
 
@@ -647,18 +648,18 @@ var tests = []struct {
 			defer close()
 
 			// setup
-			err := migrate.Up(nil, db, fs, tableName)
+			err := txmigrate.Up(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			name, err := migrate.RemoteVersion(db, fs, tableName)
+			name, err := txmigrate.RemoteVersion(db, fs, tableName)
 			is.NoErr(err)
 			is.Equal(`002_users.up.sql`, name)
 
 			// teardown
-			err = migrate.Down(nil, db, fs, tableName)
+			err = txmigrate.Down(nil, db, fs, tableName)
 			is.NoErr(err)
 
-			_, err = migrate.RemoteVersion(db, fs, tableName)
+			_, err = txmigrate.RemoteVersion(db, fs, tableName)
 			is.Equal(migrate.ErrNoMigrations, err)
 		},
 	},
@@ -740,7 +741,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			is.NoErr(migrate.Up(nil, db, fs, "migrate"))
+			is.NoErr(txmigrate.Up(nil, db, fs, "migrate"))
 
 			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
 			is.NoErr(err)
@@ -768,7 +769,7 @@ var tests = []struct {
 			is.NoErr(rows.Close())
 			is.Equal(0, count)
 
-			name, err := migrate.RemoteVersion(db, fs, tableName)
+			name, err := txmigrate.RemoteVersion(db, fs, tableName)
 			is.NoErr(err)
 			is.Equal(`002_users.up.sql`, name)
 		},
@@ -811,7 +812,7 @@ var tests = []struct {
 			db, close := connect(t, url)
 			defer close()
 
-			is.NoErr(migrate.Up(nil, db, fs, "migrate"))
+			is.NoErr(txmigrate.Up(nil, db, fs, "migrate"))
 
 			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
 			is.NoErr(err)
@@ -836,7 +837,7 @@ var tests = []struct {
 				`),
 			}
 
-			err = migrate.Redo(nil, db, fs, "migrate")
+			err = txmigrate.Redo(nil, db, fs, "migrate")
 			is.True(err != nil)
 
 			rows, err = db.Query(`select * from users`)
@@ -849,7 +850,159 @@ var tests = []struct {
 			is.NoErr(rows.Close())
 			is.Equal(1, count)
 
-			name, err := migrate.RemoteVersion(db, fs, tableName)
+			name, err := txmigrate.RemoteVersion(db, fs, tableName)
+			is.NoErr(err)
+			is.Equal(`002_users.up.sql`, name)
+		},
+	},
+	{
+		name: "reset",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			is := is.New(t)
+
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists teams;
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+					`),
+				},
+			}
+
+			db, close := connect(t, url)
+			defer close()
+
+			is.NoErr(txmigrate.Up(nil, db, fs, "migrate"))
+
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
+			is.NoErr(err)
+			for rows.Next() {
+				var id int
+				var email string
+				err := rows.Scan(&id, &email)
+				is.NoErr(err)
+				is.Equal(1, id)
+				is.Equal("jack@standupjack.com", email)
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+
+			err = migrate.Reset(nil, db, fs, "migrate")
+			is.NoErr(err)
+
+			rows, err = db.Query(`select * from users`)
+			is.NoErr(err)
+			count := 0
+			for rows.Next() {
+				count++
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+			is.Equal(0, count)
+
+			name, err := txmigrate.RemoteVersion(db, fs, tableName)
+			is.NoErr(err)
+			is.Equal(`002_users.up.sql`, name)
+		},
+	},
+	{
+		name: "reset failure rollback",
+		fn: func(t testing.TB, url string) {
+			drop(t, url)
+			is := is.New(t)
+
+			fs := fstest.MapFS{
+				"001_init.up.sql": {
+					Data: []byte(`
+						create table if not exists teams (
+							id serial primary key not null,
+							name text not null
+						);
+					`),
+				},
+				"001_init.down.sql": {
+					Data: []byte(`
+						drop table if exists teams;
+					`),
+				},
+				"002_users.up.sql": {
+					Data: []byte(`
+						create table if not exists users (
+							id serial primary key not null,
+							email text not null
+						);
+					`),
+				},
+				"002_users.down.sql": {
+					Data: []byte(`
+						drop table if exists users;
+					`),
+				},
+			}
+
+			db, close := connect(t, url)
+			defer close()
+
+			is.NoErr(txmigrate.Up(nil, db, fs, "migrate"))
+
+			rows, err := db.Query(`insert into users (id, email) values (1, 'jack@standupjack.com') returning *`)
+			is.NoErr(err)
+			for rows.Next() {
+				var id int
+				var email string
+				err := rows.Scan(&id, &email)
+				is.NoErr(err)
+				is.Equal(1, id)
+				is.Equal("jack@standupjack.com", email)
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+
+			// make the up migration fail
+			fs["002_users.up.sql"] = &fstest.MapFile{
+				Data: []byte(`
+					create table if not exists users (
+						id serial primary key not null,
+						email text not null,
+					; -- syntax error
+				`),
+			}
+
+			err = txmigrate.Reset(nil, db, fs, "migrate")
+			is.True(err != nil)
+
+			rows, err = db.Query(`select * from users`)
+			is.NoErr(err)
+			count := 0
+			for rows.Next() {
+				count++
+			}
+			is.NoErr(rows.Err())
+			is.NoErr(rows.Close())
+			is.Equal(1, count)
+
+			name, err := txmigrate.RemoteVersion(db, fs, tableName)
 			is.NoErr(err)
 			is.Equal(`002_users.up.sql`, name)
 		},
