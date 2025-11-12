@@ -382,9 +382,13 @@ func getDirection(filename string) (Direction, error) {
 	return "", errors.New("filepath must specify the direction up or down (e.g. 000_setup.up.sql)")
 }
 
+func quote(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
 // ensure the table exists
 func ensureTableExists(db DB, tableName string) error {
-	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + tableName + " (version bigint not null primary key);"); err != nil {
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS " + quote(tableName) + " (version bigint not null primary key);"); err != nil {
 		return err
 	}
 	return nil
@@ -392,7 +396,7 @@ func ensureTableExists(db DB, tableName string) error {
 
 // Version gets the version from postgres
 func getRemoteVersion(db DB, tableName string) (version uint, err error) {
-	err = db.QueryRow("SELECT version FROM " + tableName + " ORDER BY version DESC LIMIT 1").Scan(&version)
+	err = db.QueryRow("SELECT version FROM " + quote(tableName) + " ORDER BY version DESC LIMIT 1").Scan(&version)
 	switch {
 	case err == sql.ErrNoRows:
 		return 0, nil
@@ -405,7 +409,7 @@ func getRemoteVersion(db DB, tableName string) (version uint, err error) {
 
 // insert a new version into the table
 func insertVersion(db DB, tableName string, version uint) error {
-	if _, err := db.Exec("INSERT INTO "+tableName+" (version) VALUES ($1)", version); err != nil {
+	if _, err := db.Exec("INSERT INTO "+quote(tableName)+" (version) VALUES ($1)", version); err != nil {
 		return err
 	}
 	return nil
@@ -413,7 +417,7 @@ func insertVersion(db DB, tableName string, version uint) error {
 
 // delete a version from the table
 func deleteVersion(db DB, tableName string, version uint) error {
-	if _, err := db.Exec("DELETE FROM "+tableName+" WHERE version=$1", version); err != nil {
+	if _, err := db.Exec("DELETE FROM "+quote(tableName)+" WHERE version=$1", version); err != nil {
 		return err
 	}
 	return nil

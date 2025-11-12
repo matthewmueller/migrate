@@ -5,7 +5,6 @@ import (
 
 	"github.com/livebud/cli"
 	"github.com/matthewmueller/migrate/internal/txmigrate"
-	// "github.com/matthewmueller/migrate"
 )
 
 type down struct {
