@@ -1,3 +1,8 @@
+# 0.0.9 / 2026-07-25
+
+- add pgxmigrate package
+- run modernize
+
 # 0.0.8 / 2025-11-09
 
 - fix migrate new when there's already an internal/migrate directory
