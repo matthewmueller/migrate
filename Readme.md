@@ -41,6 +41,35 @@ Commands:
   info                 info on the current migration
 ```
 
+### Using pgxpool
+
+Use the `pgxmigrate` package to run migrations with a `*pgxpool.Pool`:
+
+```go
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matthewmueller/migrate/pgxmigrate"
+)
+
+func migrateDatabase(ctx context.Context) error {
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	return pgxmigrate.Up(slog.Default(), pool, os.DirFS("migrations"), "migrate")
+}
+```
+
+The package provides wrappers for `RemoteVersion`, `Up`, `UpBy`, `Down`, `DownBy`, and `Redo`. The pool remains caller-owned and is not closed by these wrappers.
+
 ## Help Wanted
 
 - Generic driver interface
